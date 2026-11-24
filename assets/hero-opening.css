@@ -80,16 +80,6 @@
   .hero-opening-progress-fill { transition: none; }
 }
 
-/* Keep the endpoint text inside the track while the intermediate labels stay centered. */
-#portProgressLabels .ppl-item:first-child {
-  align-items: start;
-  transform: none;
-}
-#portProgressLabels .ppl-item:last-child {
-  align-items: end;
-  transform: translateX(-100%);
-}
-
 .hero-opening .poster-caption {
   grid-area: auto;
   max-inline-size: none;

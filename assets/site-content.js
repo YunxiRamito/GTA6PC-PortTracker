@@ -903,6 +903,7 @@ if (typeof module === 'object' && module.exports) {
         const furthestIdx = milestones.findIndex(m => m.key === (progress.furthestMilestone || 'groundwork'));
         labels.replaceChildren(...milestones.map((m, i) => {
           const mark = node('div', i <= furthestIdx ? 'ppl-item is-reached' : 'ppl-item');
+          mark.dataset.milestoneKey = m.key;
           mark.style.left = m.at + '%';
           mark.append(node('b', '', m.at + '%'), node('span', 'ppl-dot'), node('span', 'ppl-label', m.label));
           return mark;

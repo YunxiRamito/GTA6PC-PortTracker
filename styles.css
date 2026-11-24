@@ -710,7 +710,32 @@ h1, h2, h3, p, figure { margin: 0; }
 /* Responsive */
 @media (max-width: 860px) {
   .port-progress-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (min-width: 768px) and (max-width: 860px) {
   .ppl-item:nth-child(even) { transform: translateX(-50%) translateY(22px); }
+}
+@media (min-width: 768px) {
+  .port-progress-labels .ppl-item:first-child { align-items: start; transform: none; }
+  .port-progress-labels .ppl-item:last-child { align-items: end; transform: translateX(-100%); }
+}
+@media (width < 768px) {
+  .port-progress-labels {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    height: auto;
+  }
+  .port-progress-labels .ppl-item {
+    position: static;
+    min-inline-size: 0;
+    transform: none;
+    text-align: center;
+  }
+  .port-progress-labels .ppl-item:not(:first-child, [data-milestone-key='ingame'], :last-child),
+  .port-progress-labels .ppl-dot { display: none; }
+  .port-progress-labels .ppl-item:first-child { align-items: start; text-align: start; }
+  .port-progress-labels .ppl-item:last-child { align-items: end; text-align: end; }
+  .port-progress-labels .ppl-label { max-inline-size: 100%; white-space: normal; overflow-wrap: anywhere; }
 }
 @media (max-width: 540px) {
   .port-progress-avatars, .pp-avatar:not(.is-leader) { display: none; }
