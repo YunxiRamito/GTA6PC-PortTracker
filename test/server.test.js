@@ -7,6 +7,9 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const test = require('node:test');
 const { createAdminAccounts } = require('../api/_admin-accounts');
+const { createContentStore, validateContent } = require('../api/_content');
+const { createDashboard } = require('../api/dashboard');
+const { createFixtures } = require('../fixtures/demo');
 const { createSiteServer } = require('../server');
 const { createDemoServer } = require('../preview');
 
@@ -58,6 +61,22 @@ function sessionCookie(response) {
   return cookie;
 }
 
+function checkDemoPrivateRepositories(archive) {
+  assert.deepEqual(archive.privateRepositories.map(project => project.id), ['private-repo-sample-launch', 'private-repo-sample-render']);
+  for (const project of archive.privateRepositories) {
+    assert.deepEqual(Object.keys(project).sort(), ['id', 'portProgress', 'sourceLabel', 'sourceUrl', 'summary', 'title']);
+    assert.equal(project.sourceUrl, '#about');
+  }
+  assert.equal(archive.progress.leaderId, 'private-repo-sample-launch');
+  assert.equal(archive.progress.leaderName, archive.privateRepositories[0].title);
+  assert.equal(archive.progress.score, 58);
+  assert.deepEqual(archive.progress.ranked.filter(project => project.id.startsWith('private-repo-')).map(project => project.score), [58, 5.5]);
+  assert.equal(archive.progress.rankedCount, 5);
+  assert.equal(archive.stats.total, 5);
+  assert.equal(archive.projects.length, 5);
+  assert.equal(archive.stats.totalStars, 322);
+}
+
 test('functional backend stores edits, enforces roles, and serves community routes', async t => {
   const { directory, cleanup } = await runtime();
   const accountFile = path.join(directory, 'accounts.json');
@@ -74,7 +93,7 @@ test('functional backend stores edits, enforces roles, and serves community rout
   assert.equal(home.status, 200);
   assert.match(await home.text(), /GTA VI 移植观测站/);
   const archive = await json(await send(origin, '/api/dashboard'), 200);
-  assert.equal(archive.progress.score, 46);
+  checkDemoPrivateRepositories(archive);
   assert.ok(archive.projects.every(project => project.repo.startsWith('demo-workshop/')));
   assert.equal((await send(origin, '/rss.xml')).status, 200);
   assert.equal((await send(origin, '/admin/')).headers.get('location'), '/admin/login');
@@ -100,6 +119,29 @@ test('functional backend stores edits, enforces roles, and serves community rout
   assert.equal((await json(await send(origin, '/api/content'), 200)).content.home.latestUpdate, next.latestUpdate);
   const saved = JSON.parse(await fs.readFile(path.join(directory, 'content.json'), 'utf8'));
   assert.equal(saved.content.home.latestUpdate, next.latestUpdate);
+
+  const roadmapUrl = '/api/admin/content/roadmap';
+  const roadmapResponse = await send(origin, roadmapUrl, { cookie });
+  const roadmapRevision = roadmapResponse.headers.get('etag');
+  const { content: roadmap } = await json(roadmapResponse, 200);
+  const first = roadmap.privateRepositories[0];
+  const writeRoadmap = data => send(origin, roadmapUrl, { method: 'PUT', data, cookie, headers: { 'If-Match': roadmapRevision } });
+  const invalid = await writeRoadmap({ ...roadmap, privateRepositories: [first, { ...first, repo: 'demo-workshop/hidden-example' }] });
+  const failure = await json(invalid, 422);
+  assert.ok(failure.details.some(detail => detail.includes('privateRepositories[2].id')));
+  assert.ok(failure.details.some(detail => detail.includes('privateRepositories[2].repo')));
+  assert.equal((await send(origin, roadmapUrl, { cookie })).headers.get('etag'), roadmapRevision);
+  const proposal = { ...roadmap, privateRepositories: roadmap.privateRepositories.slice(1) };
+  const { content: updated } = await json(await writeRoadmap(proposal), 200);
+  assert.deepEqual(updated.privateRepositories, proposal.privateRepositories);
+  assert.equal((await writeRoadmap(roadmap)).status, 412);
+  assert.deepEqual((await json(await send(origin, '/api/content'), 200)).content.roadmap.privateRepositories, proposal.privateRepositories);
+  const reread = createContentStore({ filePath: path.join(directory, 'content.json') }).read('roadmap');
+  assert.deepEqual(reread.content.privateRepositories, proposal.privateRepositories);
+  const changedArchive = await json(await send(origin, '/api/dashboard'), 200);
+  assert.deepEqual(changedArchive.privateRepositories.map(project => project.id), ['private-repo-sample-render']);
+  assert.equal(changedArchive.progress.score, 46);
+  assert.deepEqual(changedArchive.stats, archive.stats);
 
   const username = 'local-member-example';
   await json(await send(origin, '/api/admin/register', { method: 'POST', data: {
@@ -142,6 +184,47 @@ test('screenshot preview responds from fixtures and rejects writes', async t => 
   const origin = await listener(t, server);
   const content = await json(await send(origin, '/api/content'), 200);
   assert.match(content.content.home.latestUpdate, /虚构/);
+  checkDemoPrivateRepositories(await json(await send(origin, '/api/dashboard'), 200));
   assert.equal((await send(origin, '/api/feedback', { method: 'POST', data: { text: 'sample' } })).status, 405);
   assert.equal((await send(origin, '/about/')).status, 200);
+});
+
+test('private repository validation accepts legacy roadmaps and enforces the record contract', () => {
+  const { content } = createFixtures(Date.now());
+  const validate = list => validateContent({ ...content, roadmap: { ...content.roadmap, privateRepositories: list } });
+  const first = content.roadmap.privateRepositories[0];
+  for (const id of ['x', 'a-2', 'a'.repeat(48)]) assert.deepEqual(validate([{ ...first, id }]), []);
+  assert.deepEqual(validate(undefined), []);
+  assert.deepEqual(validate([]), []);
+  for (const id of ['', '-a', 'a-', 'a--b', 'A', 'a_b', 'a/b', 'a\n', 'a'.repeat(49)]) {
+    assert.ok(validate([{ ...first, id }]).some(detail => detail.includes('privateRepositories[1].id')), JSON.stringify(id));
+  }
+  for (const entry of [null, { ...first, title: ' ' }, { ...first, summary: '\u202e示例' }, { ...first, sourceLabel: '' },
+    { ...first, sourceUrl: 'javascript:void(0)' }, { ...first, sourceUrl: '/not-an-anchor' },
+    { ...first, portProgress: { gta: { loads: 2 } } }, { ...first, portProgress: undefined }, { ...first, github: {} }]) {
+    assert.ok(validate([entry]).length > 0);
+  }
+  assert.ok(validate({}).length > 0);
+  assert.ok(validate(Array.from({ length: 161 }, (_, index) => ({ ...first, id: `item-${index}` }))).length > 0);
+  assert.ok(validate([first, first]).some(detail => detail.includes('privateRepositories[2].id')));
+});
+
+test('private records never trigger GitHub lookups and tie order matches the public archive', () => {
+  const { content, metadata } = createFixtures(Date.now());
+  const baseline = createDashboard({ initial: metadata }).get({ ...content, roadmap: {} });
+  assert.deepEqual(baseline.privateRepositories, []);
+  assert.equal(baseline.progress.score, 46);
+
+  const tied = { ...content.roadmap.privateRepositories[0], portProgress: content.projects[0].portProgress };
+  const result = createDashboard({ initial: metadata }).get({ ...content, roadmap: { privateRepositories: [tied] } });
+  assert.deepEqual(result.progress.ranked.slice(0, 2).map(entry => entry.id), [baseline.progress.leaderId, `private-repo-${tied.id}`]);
+  assert.deepEqual(result.stats, baseline.stats);
+
+  let requests = 0;
+  const standalone = createDashboard({ liveGitHub: true, fetchGitHub: async () => { requests++; return new Response(null, { status: 404 }); } })
+    .get({ ...content, projects: [] });
+  assert.equal(requests, 0);
+  assert.equal(standalone.stats.total, 0);
+  assert.equal(standalone.progress.rankedCount, 2);
+  assert.equal(standalone.progress.leaderId, 'private-repo-sample-launch');
 });

@@ -9,6 +9,8 @@ const { createFixtures } = require('../fixtures/demo');
 const SECTIONS = ['home', 'countdown', 'roadmap', 'announcements', 'downloads', 'news', 'projects', 'community'];
 const PUBLIC_SECTIONS = ['home', 'countdown', 'roadmap', 'announcements', 'downloads', 'community'];
 const RETIRED_ROADMAP_FIELDS = new Set(['currentStep', 'note', 'steps']);
+const PRIVATE_REPOSITORY_LIMIT = 160;
+const PRIVATE_REPOSITORY_FIELDS = new Set(['id', 'title', 'summary', 'sourceLabel', 'sourceUrl', 'portProgress']);
 const TYPES = {
   runner: { label: '运行与适配', order: 1 }, tool: { label: '工具', order: 2 },
   resource: { label: '资料', order: 3 }, adjacent: { label: '其他游戏参考', order: 4 },
@@ -193,6 +195,24 @@ function validateContent(content) {
         validatePortProgress(build.portProgress, `${at}.portProgress`);
       }
     }
+    if (roadmap.privateRepositories !== undefined) {
+      const ids = new Set();
+      items(roadmap.privateRepositories, 'roadmap.privateRepositories', PRIVATE_REPOSITORY_LIMIT, (entry, at) => {
+        for (const key of Object.keys(entry)) check(PRIVATE_REPOSITORY_FIELDS.has(key), `${at}.${key}`, '不是支持字段');
+        const validId = validGameplayId(entry.id);
+        check(validId, `${at}.id`, GAMEPLAY_ID_RULE);
+        if (validId) {
+          check(!ids.has(entry.id), `${at}.id`, '标识不能重复');
+          ids.add(entry.id);
+        }
+        for (const [field, max] of [['title', 120], ['summary', 800], ['sourceLabel', 80]]) {
+          check(validPlainText(entry[field], max), `${at}.${field}`, `需要 1–${max} 个字符的纯文本`);
+        }
+        check(typeof entry.sourceUrl === 'string' && /^(?:https:\/\/|#)/i.test(entry.sourceUrl) && validUrl(entry.sourceUrl),
+          `${at}.sourceUrl`, '需要可公开分享的 HTTPS 链接或页内锚点');
+        validatePortProgress(entry.portProgress, `${at}.portProgress`);
+      });
+    }
     if (roadmap.externalProgress !== undefined) {
       const loc = 'roadmap.externalProgress';
       check(object(roadmap.externalProgress), loc, '需要对象');
@@ -358,6 +378,12 @@ function projectPublicContent(content) {
   return result;
 }
 
+function projectPrivateRepositories(roadmap) {
+  return (roadmap?.privateRepositories ?? []).map(({ id, title, summary, sourceLabel, sourceUrl, portProgress }) => ({
+    id: `private-repo-${id}`, title, summary, sourceLabel, sourceUrl, portProgress,
+  }));
+}
+
 function preserveRetiredRoadmapFields(saved, proposed) {
   // Keep old roadmap data available to older readers during a rollback.
   const fields = new Map(Object.entries(saved));
@@ -466,4 +492,4 @@ function revision(content) {
   return '"' + createHash('sha256').update(JSON.stringify(content)).digest('hex') + '"';
 }
 
-module.exports = { createContentStore, validateContent, projectPublicContent, ContentError, SECTIONS, PUBLIC_SECTIONS, TYPES, STATUSES };
+module.exports = { createContentStore, validateContent, projectPublicContent, projectPrivateRepositories, ContentError, SECTIONS, PUBLIC_SECTIONS, TYPES, STATUSES };

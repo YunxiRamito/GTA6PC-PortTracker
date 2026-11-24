@@ -883,7 +883,7 @@ if (typeof module === 'object' && module.exports) {
       setDd('ppStatFurthest', furthestMs ? furthestMs.label : '—');
       setDd('ppStatTop3', progress.top3avg != null ? progress.top3avg.toFixed(1) + '%' : '—');
       setDd('ppStatBoots', (progress.bootsCount || 0) + ' / ' + (progress.rankedCount || 0));
-      setDd('ppStatTotal', dashboardData?.stats?.total || '—');
+      setDd('ppStatTotal', dashboardData?.stats?.total ?? '—');
       ppStats.hidden = false;
     }
 
@@ -911,7 +911,10 @@ if (typeof module === 'object' && module.exports) {
       }
 
       // Avatars
-      if (avatarBox) renderPortProgressAvatars(avatarBox, ranked, progress.leaderId, dashboardData?.projects);
+      if (avatarBox) {
+        const privateRepositories = Array.isArray(dashboardData?.privateRepositories) ? dashboardData.privateRepositories : [];
+        renderPortProgressAvatars(avatarBox, ranked, progress.leaderId, [...(dashboardData?.projects || []), ...privateRepositories]);
+      }
     }
 
     // History chart

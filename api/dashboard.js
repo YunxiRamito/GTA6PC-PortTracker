@@ -1,6 +1,6 @@
 'use strict';
 
-const { TYPES, STATUSES } = require('./_content');
+const { TYPES, STATUSES, projectPrivateRepositories } = require('./_content');
 const { overall: portOverall } = require('../assets/port-score');
 const { createProgressHistory } = require('./_progress-history');
 
@@ -156,7 +156,8 @@ function createDashboard({ fetchGitHub = fetch, now = Date.now, initial = new Ma
       sourceLabel: community.sourceLabel, sourceUrl: community.sourceUrl,
       status: 'progress', portProgress: community.portProgress,
     };
-    const portOv = portOverall(communityBuild ? [...projects, communityBuild] : projects);
+    const privateRepositories = projectPrivateRepositories(content.roadmap);
+    const portOv = portOverall([...projects, ...(communityBuild ? [communityBuild] : []), ...privateRepositories]);
     const portProgress = {
       score: portOv.score,
       leaderId: portOv.leader ? portOv.leader.project.id : null,
@@ -191,7 +192,7 @@ function createDashboard({ fetchGitHub = fetch, now = Date.now, initial = new Ma
       warning: projects.length ? warning : '', refreshing: Boolean(pending),
       config: { hasToken: liveGitHub && Boolean(token), cacheMinutes: QUIET_MS / 60_000, liveTimeline: liveGitHub && Boolean(token) },
       types: TYPES, statuses: STATUSES, stats: { total: projects.length, totalStars, activeWeek, byType, byStatus },
-      projects, timeline, progress: portProgress,
+      projects, privateRepositories, timeline, progress: portProgress,
       ...(communityBuild ? { communityBuild } : {}),
     };
     const external = content.roadmap?.externalProgress;

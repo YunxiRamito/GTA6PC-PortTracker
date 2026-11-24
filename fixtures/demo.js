@@ -45,10 +45,18 @@ function createFixtures(now) {
     ['demo-launch', '2026-01-07', '建立本地演示数据集'],
   ].map(([id, date, title, correction]) => ({ id, date, title, correction: correction === true }));
   const content = {
-    home: { latestUpdate: '已收录 5 个虚构项目。查看新闻时间线和工程档案，了解示例进度。', autoNewsCount: 2 },
+    home: { latestUpdate: '已收录 7 个虚构项目。查看新闻时间线和工程档案，了解示例进度。', autoNewsCount: 2 },
     countdown: { enabled: true, label: '示例活动倒计时', target, source: '演示用计时器。每次启动后从 7 天开始计时。', buttons: [] },
     roadmap: {
       playability: { summary: '此页的全部阶段与评分均来自虚构样例。' },
+      privateRepositories: [
+        { id: 'sample-launch', title: '启动验证样例', summary: '虚构的非公开构建，用于展示进入场景前的验证阶段。',
+          sourceLabel: '演示说明', sourceUrl: '#about',
+          portProgress: { gta: { loads: 1, boots: 1, menu: 1, ingame: 0.2 }, verification: 'self-reported' } },
+        { id: 'sample-render', title: '渲染准备样例', summary: '虚构的图形适配实验，目前仅有基础准备记录。',
+          sourceLabel: '演示说明', sourceUrl: '#about',
+          portProgress: { groundwork: { shaders: 0.5, graphics: 0.25 }, verification: 'unverified' } },
+      ],
       gameplayProgress: {
         title: '里程碑样例', note: '选择阶段查看对应的演示记录。',
         milestones: EXPECTED_STEPS.map((label, index) => ({

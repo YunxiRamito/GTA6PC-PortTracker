@@ -130,7 +130,7 @@
   }
 
   function archiveCardKey(card) {
-    return card.dataset.externalProgress !== undefined ? EXTERNAL_PROGRESS_KEY : card.dataset.repo;
+    return card.dataset.privateRepo ?? (card.dataset.externalProgress !== undefined ? EXTERNAL_PROGRESS_KEY : card.dataset.repo);
   }
 
   function rememberCardFills(card) {
@@ -174,16 +174,24 @@
       var score = portScoreLib && project.portProgress && project.status !== 'reference'
         ? portScoreLib.scoreProject(project).score : -1;
       return { key: project.repo, project: project, score: score };
-    }).sort(function (a, b) {
-      return b.score - a.score;
     });
     var community = d.communityBuild;
     if (portScoreLib && community && typeof community === 'object' && community.portProgress) {
       var scored = portScoreLib.scoreProject(community);
       var card = readExternalProgress({ ...community, score: scored.score });
       if (card) list.push({ key: EXTERNAL_PROGRESS_KEY, external: { ...card, build: community }, score: scored.score });
-      list.sort(function (a, b) { return b.score - a.score; });
-    } else {
+    }
+    if (portScoreLib && Array.isArray(d.privateRepositories)) {
+      d.privateRepositories.forEach(function (project) {
+        if (!project?.portProgress || typeof project.id !== 'string' ||
+            !/^private-repo-(?=[a-z0-9-]{1,48}$)[a-z0-9]+(?:-[a-z0-9]+)*$/.test(project.id)) return;
+        var score = portScoreLib.scoreProject(project).score;
+        var card = readExternalProgress({ ...project, score: score });
+        if (card) list.push({ key: project.id, external: { ...card, build: project, privateId: project.id }, score: score });
+      });
+    }
+    list.sort(function (a, b) { return b.score - a.score; });
+    if (!portScoreLib || !community?.portProgress) {
       var external = readExternalProgress(d.externalProgress);
       if (external) list.unshift({ key: EXTERNAL_PROGRESS_KEY, external: external });
     }
@@ -222,7 +230,7 @@
     if (!existing.size && !previousFills.size) {
       grid.innerHTML = Array.from(markup.values()).join('');
     } else {
-      var focusedCard = grid.contains(active) ? active.closest('.card[data-repo], .card[data-external-progress]') : null;
+      var focusedCard = grid.contains(active) ? active.closest('.card[data-repo], .card[data-external-progress], .card[data-private-repo]') : null;
       var focusedControl = focusedCard && ['.card-progress-toggle', '.card-evidence-toggle', '.card-evidence-link',
         '.card-port-details > summary', '.card-repo', '.card-link', '.card-external-source'].find(function (selector) {
         return active.matches(selector);
@@ -453,6 +461,8 @@
   function externalCardHtml(progress, open = false) {
     var title = escapeHtml(progress.title);
     var score = String(progress.score);
+    var identity = progress.privateId ? ' data-private-repo="' + escapeAttr(progress.privateId) + '"' : ' data-external-progress';
+    var sourceTarget = progress.sourceUrl.startsWith('#') ? '' : ' target="_blank" rel="noopener noreferrer"';
     var progressBar = progress.build ? cardPortProgress(progress.build, open) :
       '<div class="card-port-progress">' +
         '<div class="card-port-score-row" aria-hidden="true"><span class="card-port-score-num">' + score + '<small>%</small></span></div>' +
@@ -461,12 +471,12 @@
           '<div class="card-port-fill progress-motion-fill" data-progress-key="score" style="--w:' + score + '%"></div>' +
         '</div>' +
       '</div>';
-    return '<article class="card card-external" data-external-progress>' +
-      '<p class="card-external-label">社区构建</p>' +
+    return '<article class="card card-external"' + identity + '>' +
+      '<p class="card-external-label">' + (progress.privateId ? '私有仓库' : '社区构建') + '</p>' +
       '<h3 class="card-title">' + title + '</h3>' +
       '<p class="card-summary card-block">' + escapeHtml(progress.summary) + '</p>' +
       progressBar +
-      '<a class="text-link card-external-source" href="' + escapeAttr(progress.sourceUrl) + '" target="_blank" rel="noopener noreferrer">' +
+      '<a class="text-link card-external-source" href="' + escapeAttr(progress.sourceUrl) + '"' + sourceTarget + '>' +
         '<span>运行记录 · ' + escapeHtml(progress.sourceLabel) + '</span>' +
         '<svg class="ui-icon" aria-hidden="true"><use href="/assets/ui/fluent.svg#arrow-up-right"></use></svg>' +
       '</a>' +

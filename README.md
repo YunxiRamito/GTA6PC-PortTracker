@@ -60,6 +60,14 @@ node preview.js
 | `GET /api/admin/content/:section`、`PUT /api/admin/content/:section` | 站长与管理员可维护分区，写入时携带读取响应中的 `ETag` 作为 `If-Match` |
 | `/api/admin/session`、`/api/admin/accounts`、`/api/admin/danmaku/*` | 登录会话、账号管理与按角色授权的弹幕管理 |
 
+### 无公开仓库地址的进度记录
+
+可在路线 JSON 或 `PUT /api/admin/content/roadmap` 中维护可选的 `roadmap.privateRepositories` 数组（最多 160 条）。每条包含 `id`、`title`、`summary`、`sourceLabel`、`sourceUrl` 和 `portProgress`，不填 `repo`。`id` 在数组内唯一，使用 1–48 个小写英文字母、数字和分隔用的连字符，例如 `sample-launch`。
+
+`GET /api/dashboard` 单独返回 `privateRepositories`，并为 `id` 添加 `private-repo-` 前缀。条目使用公版原有评分器参与总进度和工程档案排序，不进入 `projects`、GitHub 查询或 GitHub 统计。
+
+「私有仓库」表示仓库本身没有公开地址，**记录仍从公开 API 和页面展示**。`sourceUrl` 只能使用可公开分享的 HTTPS 证据链接或页内锚点；不要填写私库地址、内网链接或含访问凭据的 URL。随代码分发的两条演示记录均为虚构，仅链接到页内说明。
+
 同步方法、源文件范围和审阅步骤见 [docs/sync.md](docs/sync.md)。候选先写入 `.preview/public-source-review/`，核对后才可按本轮摘要应用；不递归复制源站。
 
 默认使用本地 GitHub 指标样例。录入公开仓库后，可用 `GTAVI_GITHUB_REFRESH=1` 启用公开 GitHub API 指标刷新。`GTAVI_GITHUB_TOKEN` 用于需要认证的刷新请求。

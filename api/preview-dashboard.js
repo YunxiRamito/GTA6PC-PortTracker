@@ -1,6 +1,6 @@
 'use strict';
 
-const { TYPES, STATUSES } = require('./_content');
+const { TYPES, STATUSES, projectPrivateRepositories } = require('./_content');
 const { overall: portOverall } = require('../assets/port-score');
 const DAY = 24 * 60 * 60 * 1000;
 const repoKey = repo => repo.toLowerCase();
@@ -36,7 +36,8 @@ function projectDashboard(content, { metadata, generatedAt, history }) {
     sourceLabel: community.sourceLabel, sourceUrl: community.sourceUrl,
     status: 'progress', portProgress: community.portProgress,
   };
-  const portOv = portOverall(communityBuild ? [...projects, communityBuild] : projects);
+  const privateRepositories = projectPrivateRepositories(content.roadmap);
+  const portOv = portOverall([...projects, ...(communityBuild ? [communityBuild] : []), ...privateRepositories]);
   const portProgress = {
     score: portOv.score,
     leaderId: portOv.leader ? portOv.leader.project.id : null,
@@ -54,7 +55,7 @@ function projectDashboard(content, { metadata, generatedAt, history }) {
   return {
     generatedAt, stale: false, rateLimited: false, refreshing: false,
     types: TYPES, statuses: STATUSES, stats: { total: projects.length, totalStars, activeWeek, byType, byStatus },
-    projects, timeline, progress: portProgress,
+    projects, privateRepositories, timeline, progress: portProgress,
   };
 }
 
