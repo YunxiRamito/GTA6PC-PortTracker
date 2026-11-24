@@ -1,0 +1,528 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0c0d1a">
+  <title>LOCAL CONSOLE 账户 · 控制台</title>
+  <meta name="port-tracker-public-origin" content="" />
+  <link rel="stylesheet" href="/admin/admin.css">
+  <link rel="stylesheet" href="/assets/site-topbar.css" />
+  <script defer src="/assets/navigation.js"></script>
+  <script src="/admin/router.js" defer></script>
+  <script src="/admin/shell.js" defer></script>
+  <script src="/admin/avatar.js" defer></script>
+  <script src="/admin/account.js" defer></script>
+  <script src="/admin/admin.js" defer></script>
+  <script src="/admin/danmaku.js" defer></script>
+<link rel="stylesheet" href="/assets/demo.css" />
+</head>
+<body data-admin-page="console">
+  <a class="skip-link" href="#main">跳到主内容</a>
+  <header class="site-topbar" data-site-topbar="console">
+      <div class="site-nav">
+      <a class="site-brand" href="/" data-site-path="/" aria-label="Port Tracker 主页">
+        <span class="brand-mark demo-brand-mark" aria-hidden="true">VI</span>
+        <span class="brand-word"><span>PORT</span><b>TRACKER</b></span>
+      </a>
+      <nav class="site-primary-nav" aria-label="网站主导航">
+        <a href="/" data-site-path="/">主页</a>
+        <a href="/thanks/" data-site-path="/thanks/">鸣谢</a>
+        <a href="/about/" data-site-path="/about/">关于</a>
+      </nav>
+      <div class="nav-actions">
+      <button class="menu-toggle" id="menuToggle" type="button" aria-label="打开网站菜单" aria-haspopup="dialog" aria-controls="siteMenu" aria-expanded="false">
+          <span class="menu-glyph" aria-hidden="true"><span></span><span></span></span>
+        </button>
+      </div>
+    </div>
+  </header>
+  <dialog class="chapter-menu" id="siteMenu" aria-labelledby="menuTitle">
+    <div class="menu-backdrop-brand" aria-hidden="true"><span class="brand-mark demo-brand-mark" aria-hidden="true">VI</span></div>
+    <div class="menu-panel" data-lenis-prevent>
+      <div class="menu-head">
+        <div><p class="micro">GTA VI COMMUNITY</p><h2 id="menuTitle">PORT TRACKER</h2></div>
+        <button class="menu-close menu-toggle" id="menuClose" type="button" aria-label="关闭网站菜单" autofocus><svg class="ui-icon" aria-hidden="true"><use href="/assets/ui/fluent.svg#dismiss" /></svg></button>
+      </div>
+      <nav class="menu-primary" aria-label="网站菜单链接">
+        <a href="/" data-site-path="/">主页</a>
+        <a href="/thanks/" data-site-path="/thanks/">鸣谢</a>
+        <a href="/about/" data-site-path="/about/">关于</a>
+      </nav>
+      <div class="menu-footer"><a class="text-link" href="/feedback/" data-site-path="/feedback/">反馈说明 <svg class="ui-icon" aria-hidden="true"><use href="/assets/ui/fluent.svg#arrow-up-right" /></svg></a></div>
+    </div>
+  </dialog>
+  <div class="admin-bootstrap" id="admin-loading" role="status">
+    <p>正在验证登录状态…</p>
+    <button class="button" id="admin-retry" type="button" hidden>重新尝试</button>
+  </div>
+  <div class="layout" id="admin-layout" hidden>
+    <div class="sidebar" id="admin-sidebar" data-open="false">
+      <div class="sidebar-bar">
+        <a class="brand" href="/admin/" aria-label="LOCAL CONSOLE 控制台首页">
+          <span class="brand-mark">LOCAL CONSOLE</span>
+          <span class="brand-caption">控制台</span>
+        </a>
+        <button type="button" class="nav-toggle" id="nav-toggle" aria-expanded="false" aria-controls="nav-drawer">
+          <span id="nav-toggle-label">菜单</span>
+          <svg class="icon" aria-hidden="true"><use href="/assets/ui/fluent.svg#chevron-down"></use></svg>
+        </button>
+      </div>
+      <div class="nav-drawer" id="nav-drawer">
+        <p class="account-summary" id="account-summary" hidden></p>
+        <nav class="admin-nav" id="admin-nav" aria-label="后台导航"></nav>
+        <div class="sidebar-foot">
+          <button type="button" class="button quiet logout-button" id="logout">退出登录</button>
+          <p class="shell-status" id="shell-status" role="status" aria-live="polite"></p>
+        </div>
+      </div>
+    </div>
+
+    <main id="main" tabindex="-1">
+      <section id="account-view" data-shell-view aria-labelledby="account-title" hidden>
+        <header class="page-heading">
+          <p class="eyebrow" id="account-eyebrow" data-shell-eyebrow>ACCOUNT / PROFILE</p>
+          <h1 id="account-title" tabindex="-1" data-shell-title>个人资料</h1>
+        </header>
+        <section class="account-password-only" id="password-only" aria-labelledby="password-title" hidden>
+          <div class="editor-panel account-panel">
+            <p class="eyebrow">FIRST SIGN-IN</p>
+            <h2 id="password-title" tabindex="-1">首次登录，请先设置新密码</h2>
+            <p class="section-intro">完成后即可继续使用账户。</p>
+            <form class="account-form" id="password-form" novalidate>
+              <div class="field">
+                <label for="password-current">当前密码</label>
+                <input id="password-current" type="password" autocomplete="current-password" required aria-describedby="password-help account-password-status">
+              </div>
+              <div class="field">
+                <label for="password-new">新密码</label>
+                <input id="password-new" type="password" autocomplete="new-password" required aria-describedby="password-help account-password-status">
+                <p class="hint" id="password-help">8 至 128 个字符，且至少包含 1 个英文字母。</p>
+              </div>
+              <div class="field">
+                <label for="password-confirm">确认新密码</label>
+                <input id="password-confirm" type="password" autocomplete="new-password" required aria-describedby="password-help account-password-status">
+              </div>
+              <p class="account-status" id="account-password-status" data-tone="neutral" role="status" aria-live="polite"></p>
+              <button class="button primary" id="password-submit" type="submit">设置新密码</button>
+            </form>
+          </div>
+        </section>
+        <div id="account-regular" hidden>
+          <section class="editor-panel account-panel" id="profile-panel" aria-labelledby="profile-title" hidden>
+            <div class="account-panel-heading">
+              <div>
+                <p class="eyebrow">PROFILE / PRIVATE</p>
+                <h2 id="profile-title">资料与头像</h2>
+                <p class="hint">用户名与角色由系统管理。</p>
+              </div>
+              <div class="account-identity-meta"><span class="account-uid" id="account-uid" hidden></span><span class="account-role" id="account-role"></span></div>
+            </div>
+            <form class="account-form" id="profile-form" novalidate>
+              <fieldset class="account-fields" id="profile-fields" disabled>
+                <div class="field-grid">
+                  <div class="field">
+                    <label for="profile-username">用户名</label>
+                    <input id="profile-username" type="text" autocomplete="username" readonly aria-describedby="profile-help">
+                  </div>
+                  <div class="field">
+                    <label for="profile-nickname">昵称</label>
+                    <input id="profile-nickname" type="text" maxlength="40" autocomplete="nickname" required aria-describedby="profile-help profile-status">
+                  </div>
+                  <div class="field field-wide">
+                    <label for="profile-email">邮箱 <span class="hint">（可选）</span></label>
+                    <input id="profile-email" type="email" maxlength="254" autocomplete="email" aria-describedby="profile-help profile-status">
+                  </div>
+                  <div class="field field-wide">
+                    <fieldset class="avatar-field profile-avatar-field">
+                      <legend>头像 <span class="hint">（可选）</span></legend>
+                      <div class="avatar-file-picker">
+                        <label class="avatar-file-button" for="profile-avatar-file">选择图片</label>
+                        <input id="profile-avatar-file" type="file" accept="image/png,image/jpeg,image/webp" aria-describedby="profile-avatar-help profile-avatar-status profile-status">
+                      </div>
+                      <p class="hint" id="profile-avatar-help">PNG、JPEG 或 WebP，最大 10 MB。可拖动图片调整裁切区域。</p>
+                      <canvas class="avatar-crop-canvas" id="profile-avatar-canvas" width="256" height="256" role="img" aria-label="128 × 128 头像裁切预览；选择图片后可拖动调整"></canvas>
+                      <div class="avatar-controls" id="profile-avatar-controls" hidden>
+                        <label for="profile-avatar-x">水平位置</label>
+                        <input id="profile-avatar-x" type="range" min="0" max="1000" value="500" aria-label="头像水平裁切位置">
+                        <label for="profile-avatar-y">垂直位置</label>
+                        <input id="profile-avatar-y" type="range" min="0" max="1000" value="500" aria-label="头像垂直裁切位置">
+                        <label for="profile-avatar-zoom">缩放</label>
+                        <input id="profile-avatar-zoom" type="range" min="100" max="400" value="100" aria-label="头像缩放比例">
+                        <div class="avatar-actions">
+                          <button class="button" id="profile-avatar-reset" type="button">重置裁切</button>
+                          <button class="button" id="profile-avatar-remove" type="button">移除头像</button>
+                        </div>
+                      </div>
+                      <p class="hint" id="profile-avatar-status" role="status" aria-live="polite">正在读取头像…</p>
+                    </fieldset>
+                  </div>
+                </div>
+                <p class="hint" id="profile-help">资料只用于显示账户信息。</p>
+                <p class="account-status" id="profile-status" data-tone="neutral" role="status" aria-live="polite">正在读取个人资料…</p>
+                <div class="account-actions">
+                  <button class="button primary" id="profile-save" type="submit" disabled>保存资料</button>
+                </div>
+              </fieldset>
+              <button type="button" class="button" id="profile-retry" hidden>重新读取资料</button>
+            </form>
+          </section>
+
+          <div class="editor-panel account-panel" id="regular-password-panel" hidden>
+            <form class="account-form" id="regular-password-form" novalidate>
+              <div class="field">
+                <label for="regular-password-current">当前密码</label>
+                <input id="regular-password-current" type="password" autocomplete="current-password" required aria-describedby="regular-password-help regular-password-status">
+              </div>
+              <div class="field">
+                <label for="regular-password-new">新密码</label>
+                <input id="regular-password-new" type="password" autocomplete="new-password" required aria-describedby="regular-password-help regular-password-status">
+                <p class="hint" id="regular-password-help">8 至 128 个字符，且至少包含 1 个英文字母。</p>
+              </div>
+              <div class="field">
+                <label for="regular-password-confirm">确认新密码</label>
+                <input id="regular-password-confirm" type="password" autocomplete="new-password" required aria-describedby="regular-password-help regular-password-status">
+              </div>
+              <p class="account-status" id="regular-password-status" data-tone="neutral" role="status" aria-live="polite"></p>
+              <button class="button" id="regular-password-submit" type="submit">更改密码</button>
+            </form>
+          </div>
+        </div>
+      </section>
+
+      <section id="accounts-view" data-shell-view aria-labelledby="accounts-title" hidden>
+        <header class="page-heading">
+          <p class="eyebrow" data-shell-eyebrow>ACCOUNT / ACCESS</p>
+          <h1 id="accounts-title" tabindex="-1" data-shell-title>账号管理</h1>
+          <p>查看账户并按职责分配角色。登录权限仍由服务器独立校验。</p>
+        </header>
+        <section class="editor-panel account-panel" id="create-account-panel" aria-labelledby="create-account-title" hidden>
+          <h2 id="create-account-title">创建账户</h2>
+          <p class="section-intro">新账户首次登录时需要先设置密码。</p>
+          <form class="account-form" id="create-account-form" novalidate>
+            <div class="field">
+              <label for="create-account-username">用户名</label>
+              <input id="create-account-username" minlength="3" maxlength="32" pattern="[A-Za-z0-9._-]{3,32}" autocomplete="off" autocapitalize="none" spellcheck="false" required aria-describedby="create-account-help create-account-status">
+            </div>
+            <div class="field">
+              <label for="create-account-password">初始密码</label>
+              <input id="create-account-password" type="password" autocomplete="new-password" required aria-describedby="create-account-help create-account-status">
+              <p class="hint" id="create-account-help">用户名为 3–32 个英文字母、数字或 . _ -；密码为 8 至 128 个字符，且至少包含 1 个英文字母。</p>
+            </div>
+            <div class="field">
+              <label for="create-account-role">角色</label>
+              <select id="create-account-role" required>
+                <option value="user">普通用户</option>
+                <option value="moderator">弹幕风纪委员</option>
+                <option value="admin">普通管理员</option>
+                <option value="owner">最高级别管理员</option>
+              </select>
+            </div>
+            <p class="account-status" id="create-account-status" data-tone="neutral" role="status" aria-live="polite"></p>
+            <button class="button primary" id="create-account-submit" type="submit">创建账户</button>
+          </form>
+        </section>
+        <section class="editor-panel account-panel" aria-labelledby="account-list-title">
+          <div class="account-panel-heading">
+            <div>
+              <p class="eyebrow">ROLE / ASSIGNMENT</p>
+              <h2 id="account-list-title">账户列表</h2>
+            </div>
+            <button class="button" id="accounts-reload" type="button">重新读取</button>
+          </div>
+          <div class="account-search field">
+            <label for="accounts-search">搜索账户</label>
+            <input id="accounts-search" type="search" autocomplete="off" spellcheck="false" placeholder="UID、用户名或昵称" aria-controls="accounts-list">
+          </div>
+          <p class="account-status" id="accounts-status" data-tone="neutral" role="status" aria-live="polite">打开本页后读取账户列表。</p>
+          <div class="account-table-wrap" role="region" aria-label="账户和角色" tabindex="0">
+            <table class="account-table">
+              <thead><tr><th scope="col">账户</th><th scope="col">角色</th><th scope="col">状态</th><th scope="col">操作</th></tr></thead>
+              <tbody id="accounts-list"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <dialog class="account-dialog" id="account-action-dialog" aria-labelledby="account-dialog-title" aria-describedby="account-dialog-description">
+        <form method="dialog" class="account-dialog-inner" id="account-dialog-form">
+          <h2 id="account-dialog-title"></h2>
+          <p id="account-dialog-description"></p>
+          <div class="field" id="account-dialog-confirm-field" hidden>
+            <label for="account-dialog-confirm">输入完整用户名以确认删除</label>
+            <input id="account-dialog-confirm" autocomplete="off" autocapitalize="none" spellcheck="false">
+          </div>
+          <p class="account-dialog-secret" id="account-dialog-secret" hidden></p>
+          <p class="account-status" id="account-dialog-status" role="status" aria-live="polite"></p>
+          <div class="account-dialog-actions">
+            <button class="button" id="account-dialog-cancel" value="cancel">关闭</button>
+            <button class="button" id="account-dialog-copy" type="button" hidden>复制临时密码</button>
+            <button class="button danger" id="account-dialog-confirm-action" type="button" hidden></button>
+          </div>
+        </form>
+      </dialog>
+
+      <section id="editorial-view" data-shell-view aria-labelledby="editorial-title" hidden>
+      <header class="page-heading">
+        <p class="eyebrow" id="editorial-eyebrow" data-shell-eyebrow>CONTENT</p>
+        <h1 id="editorial-title" tabindex="-1" data-shell-title>内容编辑</h1>
+        <p id="editorial-intro"></p>
+        <p class="page-note">各分区共用一份草稿，切换分区不会丢失修改。点「保存全部」后一次写入。</p>
+      </header>
+
+      <div class="toolbar" role="group" aria-label="编辑与保存">
+        <div class="mode-switch" role="group" aria-label="编辑方式">
+          <button type="button" id="form-mode" aria-pressed="true" aria-controls="form-editor" disabled>分区表单</button>
+          <button type="button" id="json-mode" aria-pressed="false" aria-controls="json-view" disabled>原始 JSON</button>
+        </div>
+        <div class="save-actions">
+          <span class="state" id="draft-state">尚未读取</span>
+          <button type="button" class="button" id="reload">重新读取</button>
+          <button type="button" class="button primary" id="save" disabled>保存全部</button>
+        </div>
+      </div>
+
+      <section class="feedback" id="feedback" data-tone="neutral" aria-label="操作反馈">
+        <p id="status" role="status">等待读取内容。</p>
+        <ul id="error-details" hidden></ul>
+      </section>
+      <div class="conflict" id="conflict" hidden>
+        <strong>服务器有更新，本页草稿未丢失。</strong>
+        <p>点击「重新读取」载入最新版本。旧草稿会保留在「原始 JSON」下方，供你对照合并，再保存新版。</p>
+      </div>
+
+      <div id="workspace" hidden>
+        <section class="editor-panel" id="form-editor" aria-labelledby="editorial-title"></section>
+        <section class="editor-panel json-view" id="json-view" aria-labelledby="json-title" hidden>
+          <p class="eyebrow">ADVANCED / JSON</p>
+          <h2 id="json-title" tabindex="-1">原始 JSON</h2>
+          <p class="section-intro" id="json-help">编辑整个内容对象，不要加外层的 <code>content</code>。内容是有效 JSON 才能保存或切回表单。</p>
+          <label for="raw-editor">完整内容对象</label>
+          <textarea class="raw-editor" id="raw-editor" spellcheck="false" autocomplete="off" autocapitalize="off" aria-describedby="json-help json-error"></textarea>
+          <p class="field-error" id="json-error" role="alert" hidden></p>
+          <details class="recovery" id="recovery" hidden>
+            <summary>查看冲突前的草稿</summary>
+            <div class="recovery-body">
+              <p class="hint">下方为只读备份，仅在本页保留。请从中取出需要的改动，合并到上方的新版本；不要用旧草稿整份覆盖。</p>
+              <div class="backups" id="backups"></div>
+            </div>
+          </details>
+        </section>
+        <aside class="maintenance" aria-label="维护提示">
+          <strong>一起核对四处内容</strong>
+          <p>新闻时间线、移植路线、工程档案和 社区公告。没有新证据时，保留原有内容。</p>
+        </aside>
+      </div>
+
+      <details class="api-help">
+        <summary>给 AI / 脚本的接口说明</summary>
+        <div class="api-body">
+          <ol>
+            <li>用 <code>GET /api/admin/content</code> 读取 <code>content</code>，记下响应头 <code>ETag</code>。</li>
+            <li>在完整的 <code>content</code> 对象上修改，保留未编辑字段。向同一个地址发 <code>PUT</code>，请求体直接放这个对象，不包外层 <code>content</code>。</li>
+            <li>设置 <code>Content-Type: application/json</code> 和 <code>If-Match</code>（原样使用 <code>ETag</code>）。如果服务端配置了管理密码，还需 <code>Authorization: Bearer &lt;管理密码&gt;</code>。</li>
+            <li>遇到 <code>412</code>，重新读取最新内容，合并之后再用新 <code>ETag</code> 提交；不要直接重试旧稿。</li>
+          </ol>
+          <p class="hint">只编辑一个分区时，也可用 <code>GET</code> / <code>PUT /api/admin/content/{section}</code>（例如 <code>news</code>）。</p>
+        </div>
+      </details>
+      <noscript>内容编辑台需要 JavaScript 才能读取和保存内容。</noscript>
+      </section>
+
+      <section id="danmaku-view" data-shell-view data-part="records" aria-labelledby="danmaku-title" hidden>
+        <header class="page-heading page-heading-actions">
+          <div class="page-heading-copy">
+            <p class="eyebrow" data-shell-eyebrow>DANMAKU</p>
+            <h1 id="danmaku-title" tabindex="-1" data-shell-title>弹幕记录</h1>
+            <p data-shell-intro></p>
+          </div>
+          <button type="button" class="button danmaku-records-only" id="danmaku-refresh" aria-controls="danmaku-mutes">
+            <svg class="icon" aria-hidden="true"><use href="/assets/ui/fluent.svg#arrow-clockwise"></use></svg>刷新列表
+          </button>
+        </header>
+        <section class="danmaku-settings" id="danmaku-settings" data-danmaku-part="settings" aria-labelledby="danmaku-settings-title">
+          <div class="danmaku-settings-heading">
+            <div>
+              <h2 class="visually-hidden" id="danmaku-settings-title">弹幕设置</h2>
+              <p class="danmaku-settings-intro">发送限制只针对访客消息。时间均为北京时间。</p>
+            </div>
+            <p class="danmaku-effective" id="danmaku-effective" data-state="unknown">
+              <span class="danmaku-effective-dot" aria-hidden="true"></span>
+              <span id="danmaku-effective-text">正在读取当前状态…</span>
+            </p>
+          </div>
+          <form id="danmaku-settings-form" novalidate>
+            <div class="danmaku-settings-grid">
+              <fieldset class="danmaku-setting-card">
+                <legend>实时总开关</legend>
+                <label class="danmaku-setting-toggle" for="danmaku-master-enabled">
+                  <input id="danmaku-master-enabled" type="checkbox" aria-describedby="danmaku-master-help">
+                  <span class="danmaku-setting-copy">
+                    <strong>允许实时弹幕</strong>
+                    <span id="danmaku-master-help">关闭后立即停止接收新弹幕；不会删除近期记录。</span>
+                  </span>
+                </label>
+              </fieldset>
+              <fieldset class="danmaku-setting-card">
+                <legend>每日定时关闭</legend>
+                <label class="danmaku-setting-toggle" for="danmaku-schedule-enabled">
+                  <input id="danmaku-schedule-enabled" type="checkbox" aria-describedby="danmaku-schedule-help danmaku-schedule-priority">
+                  <span class="danmaku-setting-copy">
+                    <strong>启用每日关闭与重开</strong>
+                    <span id="danmaku-schedule-priority">手动总开关关闭时，定时计划不会重新开启弹幕。</span>
+                  </span>
+                </label>
+                <p class="hint" id="danmaku-schedule-help">每天按北京时间执行一次。选择关闭和重新开启的时刻；支持跨越午夜。</p>
+                <div class="danmaku-schedule-times" id="danmaku-schedule-times" hidden>
+                  <div class="field">
+                    <label for="danmaku-close-at">关闭时间（北京时间）</label>
+                    <input id="danmaku-close-at" type="time" step="60" required aria-describedby="danmaku-schedule-help danmaku-schedule-preview danmaku-schedule-error">
+                  </div>
+                  <div class="field">
+                    <label for="danmaku-open-at">重新开启时间（北京时间）</label>
+                    <input id="danmaku-open-at" type="time" step="60" required aria-describedby="danmaku-schedule-help danmaku-schedule-preview danmaku-schedule-error">
+                  </div>
+                </div>
+                <p class="danmaku-schedule-preview" id="danmaku-schedule-preview" aria-live="polite">读取计划后显示每日执行时间。</p>
+                <p class="field-error" id="danmaku-schedule-error" role="alert" hidden></p>
+              </fieldset>
+              <fieldset class="danmaku-setting-card danmaku-community-vote-card">
+                <legend>社区禁言</legend>
+                <div class="field">
+                  <label for="danmaku-community-vote-threshold">社区禁言所需票数（2–20）</label>
+                  <input id="danmaku-community-vote-threshold" type="number" min="2" max="20" step="1" required aria-describedby="danmaku-community-vote-help danmaku-community-vote-threshold-error">
+                  <p class="field-error" id="danmaku-community-vote-threshold-error" role="alert" hidden></p>
+                </div>
+                <p class="hint" id="danmaku-community-vote-help">10 秒内集齐票数；发起者计一票，社区禁言 3 小时。</p>
+              </fieldset>
+              <fieldset class="danmaku-setting-card danmaku-rate-limit-card">
+                <legend>访客消息发送限制</legend>
+                <div class="danmaku-rate-limit-fields">
+                  <div class="field">
+                    <label for="danmaku-rate-per-minute">任意 60 秒内最多发送几条（1–60）</label>
+                    <input id="danmaku-rate-per-minute" type="number" min="1" max="60" step="1" required aria-describedby="danmaku-rate-limit-help danmaku-rate-per-minute-error">
+                    <p class="field-error" id="danmaku-rate-per-minute-error" role="alert" hidden></p>
+                  </div>
+                  <div class="field">
+                    <label for="danmaku-rate-min-interval">两条访客消息之间至少间隔多少秒（0–60）</label>
+                    <input id="danmaku-rate-min-interval" type="number" min="0" max="60" step="1" required aria-describedby="danmaku-rate-limit-help danmaku-rate-min-interval-error">
+                    <p class="field-error" id="danmaku-rate-min-interval-error" role="alert" hidden></p>
+                  </div>
+                </div>
+                <p class="hint" id="danmaku-rate-limit-help">按任意连续 60 秒统计；间隔设为 0 时，只限制每分钟条数。</p>
+              </fieldset>
+            </div>
+            <div class="danmaku-settings-actions">
+              <span class="state" id="danmaku-settings-state" data-state="normal" aria-live="polite">尚未读取</span>
+              <button type="button" class="button" id="danmaku-settings-reload" disabled>重新读取设置</button>
+              <button type="submit" class="button primary" id="danmaku-settings-save" disabled>保存设置</button>
+            </div>
+          </form>
+          <div class="feedback danmaku-settings-feedback" id="danmaku-settings-feedback" data-tone="neutral">
+            <p id="danmaku-settings-status" role="status">打开弹幕管理后读取设置。</p>
+          </div>
+        </section>
+        <section class="danmaku-scheduled" id="danmaku-scheduled" data-danmaku-part="scheduled" aria-labelledby="danmaku-scheduled-title">
+          <div class="danmaku-scheduled-heading">
+            <div>
+              <h2 class="visually-hidden" id="danmaku-scheduled-title" tabindex="-1">自动管理员消息</h2>
+            </div>
+            <p class="danmaku-scheduled-summary" id="danmaku-scheduled-summary">读取后显示当前已保存的轮播配置。</p>
+          </div>
+          <form id="danmaku-scheduled-form" novalidate>
+            <div class="danmaku-scheduled-controls">
+              <label class="danmaku-setting-toggle" for="danmaku-scheduled-enabled">
+                <input id="danmaku-scheduled-enabled" type="checkbox" aria-describedby="danmaku-scheduled-help">
+                <span class="danmaku-setting-copy">
+                  <strong>启用自动轮播</strong>
+                  <span id="danmaku-scheduled-help">每隔指定分钟发送一条；列表末尾后从第一条继续。</span>
+                </span>
+              </label>
+              <div class="field danmaku-scheduled-interval">
+                <label for="danmaku-scheduled-interval">发送间隔（分钟，1–1440）</label>
+                <input id="danmaku-scheduled-interval" type="number" min="1" max="1440" step="1" value="10" required aria-describedby="danmaku-scheduled-help danmaku-scheduled-error">
+              </div>
+            </div>
+            <div class="field danmaku-scheduled-messages-field">
+              <label for="danmaku-scheduled-messages">轮播消息（每行一条，顺序即发送顺序）</label>
+              <textarea id="danmaku-scheduled-messages" rows="4" spellcheck="false" aria-describedby="danmaku-scheduled-message-help danmaku-scheduled-count danmaku-scheduled-error" placeholder="例如：欢迎来到社区&#10;文明讨论，友善交流"></textarea>
+              <p class="hint" id="danmaku-scheduled-message-help">最多 20 条，每条最多 60 个字符。空行会忽略；调整行顺序即可改变轮播顺序。</p>
+              <p class="danmaku-scheduled-count" id="danmaku-scheduled-count" aria-live="polite">0 / 20 条</p>
+            </div>
+            <p class="field-error" id="danmaku-scheduled-error" role="alert" hidden></p>
+            <div class="danmaku-settings-actions">
+              <span class="state" id="danmaku-scheduled-state" data-state="normal" aria-live="polite">尚未读取</span>
+              <button type="button" class="button" id="danmaku-scheduled-reload" disabled>重新读取轮播配置</button>
+              <button type="submit" class="button primary" id="danmaku-scheduled-save" disabled>保存轮播配置</button>
+            </div>
+          </form>
+          <div class="feedback danmaku-settings-feedback" id="danmaku-scheduled-feedback" data-tone="neutral">
+            <p id="danmaku-scheduled-status" role="status">打开弹幕管理后读取轮播配置。</p>
+          </div>
+        </section>
+        <div class="danmaku-records" data-danmaku-part="records">
+        <div class="mode-switch danmaku-tabs" id="danmaku-tabs" role="tablist" aria-label="弹幕管理分区">
+          <button type="button" id="danmaku-tab-mutes" role="tab" aria-selected="true" aria-controls="danmaku-panel-mutes">禁言记录</button>
+          <button type="button" id="danmaku-tab-messages" role="tab" aria-selected="false" aria-controls="danmaku-panel-messages" tabindex="-1">近期弹幕</button>
+          <button type="button" id="danmaku-tab-history" role="tab" aria-selected="false" aria-controls="danmaku-panel-history" tabindex="-1">历史弹幕</button>
+          <button type="button" id="danmaku-tab-words" role="tab" aria-selected="false" aria-controls="danmaku-panel-words" tabindex="-1">违禁词</button>
+        </div>
+        <div class="feedback danmaku-feedback" id="danmaku-feedback" data-tone="neutral">
+          <p id="danmaku-status" role="status">打开本页后读取禁言记录。</p>
+          <a id="danmaku-login" href="/admin/login" target="_blank" rel="noopener" hidden>在新标签页重新登录</a>
+        </div>
+        <div class="danmaku-panel" id="danmaku-panel-mutes" role="tabpanel" aria-labelledby="danmaku-tab-mutes" tabindex="0">
+          <ul class="danmaku-list" id="danmaku-mutes" role="list" aria-label="生效中的禁言"></ul>
+        </div>
+        <div class="danmaku-panel" id="danmaku-panel-messages" role="tabpanel" aria-labelledby="danmaku-tab-messages" tabindex="0" hidden>
+          <ul class="danmaku-list" id="danmaku-messages" role="list" aria-label="近期弹幕"></ul>
+        </div>
+        <div class="danmaku-panel" id="danmaku-panel-history" role="tabpanel" aria-labelledby="danmaku-tab-history" tabindex="0" hidden>
+          <p class="danmaku-history-note">游客显示 IP，账号显示昵称；保留 30 天。</p>
+          <ul class="danmaku-list danmaku-history-list" id="danmaku-history" role="list" aria-label="历史弹幕"></ul>
+          <div class="danmaku-history-more">
+            <p id="danmaku-history-status" role="status" aria-live="polite"></p>
+            <button type="button" class="button" id="danmaku-history-more-button" aria-controls="danmaku-history" hidden>加载更早弹幕</button>
+          </div>
+        </div>
+        <div class="danmaku-panel" id="danmaku-panel-words" role="tabpanel" aria-labelledby="danmaku-tab-words" hidden>
+          <div class="danmaku-word-tools">
+            <form class="danmaku-word-search" id="danmaku-word-search">
+              <div class="field">
+                <label for="danmaku-word-query">搜索词条</label>
+                <input id="danmaku-word-query" type="search" autocomplete="off" spellcheck="false">
+              </div>
+              <div class="field">
+                <label for="danmaku-word-scope">范围</label>
+                <select id="danmaku-word-scope">
+                  <option value="all">全部</option>
+                  <option value="custom">自定义</option>
+                  <option value="builtin">内置</option>
+                  <option value="disabled">已停用</option>
+                </select>
+              </div>
+              <button type="submit" class="button" id="danmaku-word-search-button">搜索</button>
+            </form>
+            <form class="danmaku-word-add" id="danmaku-word-add">
+              <div class="field">
+                <label for="danmaku-word-term">新增违禁词</label>
+                <input id="danmaku-word-term" type="text" autocomplete="off" spellcheck="false" required>
+              </div>
+              <button type="submit" class="button primary" id="danmaku-word-add-button">添加</button>
+            </form>
+          </div>
+          <div class="danmaku-pager" id="danmaku-word-pager" hidden>
+            <p class="danmaku-meta" id="danmaku-word-page"></p>
+            <div class="danmaku-page-buttons" role="group" aria-label="词库翻页">
+              <button type="button" class="button" id="danmaku-word-prev" aria-controls="danmaku-words">上一页</button>
+              <button type="button" class="button" id="danmaku-word-next" aria-controls="danmaku-words">下一页</button>
+            </div>
+          </div>
+          <ul class="danmaku-list danmaku-word-list" id="danmaku-words" role="list" aria-label="词库搜索结果"></ul>
+        </div>
+        </div>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

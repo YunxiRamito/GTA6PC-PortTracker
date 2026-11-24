@@ -1,0 +1,469 @@
+'use strict';
+
+const { createHash, randomUUID } = require('node:crypto');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const ROOT = path.join(__dirname, '..');
+const { createFixtures } = require('../fixtures/demo');
+const SECTIONS = ['home', 'countdown', 'roadmap', 'announcements', 'downloads', 'news', 'projects', 'community'];
+const PUBLIC_SECTIONS = ['home', 'countdown', 'roadmap', 'announcements', 'downloads', 'community'];
+const RETIRED_ROADMAP_FIELDS = new Set(['currentStep', 'note', 'steps']);
+const TYPES = {
+  runner: { label: '运行与适配', order: 1 }, tool: { label: '工具', order: 2 },
+  resource: { label: '资料', order: 3 }, adjacent: { label: '其他游戏参考', order: 4 },
+};
+const STATUSES = {
+  progress: { label: '开发中', order: 1, color: '#7c3aed' }, early: { label: '早期或暂停', order: 2, color: '#64748b' },
+  tool: { label: '辅助工具', order: 3, color: '#0d9488' }, reference: { label: '参考资料', order: 4, color: '#94a3b8' },
+};
+
+const EVIDENCE_LEVELS = new Set(['unverified', 'self-reported', 'demonstrated', 'reproduced']);
+const PLAYABILITY_STATUSES = new Set(['unplayable', 'unstable', 'playable']);
+const GAMEPLAY_STATUSES = new Set(['planned', 'reported', 'completed', 'blocked', 'unknown']);
+const PROJECT_GAMEPLAY_STATUSES = new Set(['reported', 'completed', 'blocked']);
+const PORT_STABILITY_VALUES = new Set(['unknown', 'constant', 'often', 'sometimes', 'rarely', 'stable']);
+const PORT_VERIFICATION_VALUES = new Set(['verified', 'self-reported', 'unverified']);
+const BIDI_RE = /[‎‏‪-‮⁦-⁩]/;
+function validPlainText(value, max) {
+  return typeof value === 'string' && value.trim().length > 0 && value.length <= max &&
+    !/[\u0000-\u001f\u007f]/.test(value) && !BIDI_RE.test(value);
+}
+function validFraction(v) { return typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 1; }
+const GAMEPLAY_ID_RULE = '最多 48 个字符，使用小写英文字母、数字或分隔用的连字符';
+function validGameplayId(id) {
+  return typeof id === 'string' && id.length <= 48 && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id);
+}
+const WEBP_PREFIX = 'data:image/webp;base64,';
+const MAX_AVATAR_BYTES = 24 * 1024;
+
+function validDate(value, withTime = false) {
+  const match = typeof value === 'string' && /^(\d{4}-\d{2}-\d{2})(?:T(\d{2}:\d{2})(?::\d{2}(?:\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2}))?$/.exec(value);
+  if (!match || (withTime && !match[2]) || !Number.isFinite(Date.parse(value))) return false;
+  const day = new Date(match[1] + 'T00:00:00.000Z');
+  return Number.isFinite(+day) && day.toISOString().slice(0, 10) === match[1] && Number(match[2]?.slice(0, 2) || 0) < 24;
+}
+
+function validRepo(value) {
+  return typeof value === 'string' && /^[a-z\d](?:[a-z\d-]{0,37}[a-z\d])?\/[a-z\d_.-]{1,100}$/i.test(value) &&
+    !value.endsWith('/.') && !value.endsWith('/..');
+}
+
+function validUrl(value, kind = 'https') {
+  if (typeof value !== 'string' || !value || value.length > 2048 || /[\u0000-\u0020\u007f\\]/.test(value)) return false;
+  if (/^#[a-z0-9][a-z0-9-]*$/i.test(value) || (kind === 'announcement' && /^\/(?!\/)/.test(value))) return true;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && !url.username && !url.password;
+  } catch { return false; }
+}
+
+function validAvatar(value) {
+  if (typeof value !== 'string' || !value.startsWith(WEBP_PREFIX)) return false;
+  const base64 = value.slice(WEBP_PREFIX.length);
+  if (base64.length > 4 * Math.ceil(MAX_AVATAR_BYTES / 3) || !/^[a-z\d+/]+={0,2}$/i.test(base64)) return false;
+  const image = Buffer.from(base64, 'base64');
+  return image.length >= 20 && image.length <= MAX_AVATAR_BYTES && image.toString('base64') === base64 &&
+    image.toString('latin1', 0, 4) === 'RIFF' && image.readUInt32LE(4) === image.length - 8 &&
+    image.toString('latin1', 8, 12) === 'WEBP' && ['VP8 ', 'VP8L', 'VP8X'].includes(image.toString('latin1', 12, 16));
+}
+
+function normalizeNewsId(value) {
+  if (typeof value !== 'string') return '';
+  const id = value.trim().toLowerCase();
+  return id.length <= 64 && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id) ? id : '';
+}
+
+function object(value) { return value !== null && typeof value === 'object' && !Array.isArray(value); }
+function text(value, max) { return typeof value === 'string' && value.trim().length > 0 && value.length <= max && !value.includes('\0'); }
+function validateContent(content) {
+  if (!object(content)) return ['内容必须是 JSON 对象。'];
+  const errors = [];
+  const check = (ok, loc, why) => { if (!ok && errors.length < 60) errors.push(`${loc}：${why}`); };
+  const required = (value, loc, max) => check(text(value, max), loc, `需要 1–${max} 个字符`);
+  const optional = (value, loc, max) => check(value === undefined || value === '' || text(value, max), loc, `最多 ${max} 个字符`);
+  const linkErrors = { download: '需要 HTTPS 链接', announcement: '需要本站内路径（如 #downloads）或 HTTP(S) 链接' };
+  const link = (value, loc, kind) => check(validUrl(value, kind), loc, linkErrors[kind] || '链接无效或不是 HTTPS');
+  const optionalLink = (value, loc, kind) => { if (value !== undefined && value !== '') link(value, loc, kind); };
+  const date = (value, loc, withTime = false) => check(validDate(value, withTime), loc, withTime ? '需要有 UTC 偏移的 ISO 时间' : '需要有效日期或带时区的时间');
+  function items(value, loc, max, validate, min = 0) {
+    if (!Array.isArray(value)) return check(false, loc, '需要列表');
+    check(value.length >= min && value.length <= max, loc, `需要 ${min}–${max} 条`);
+    value.slice(0, max).forEach((entry, index) => {
+      const key = `${loc}[${index + 1}]`;
+      if (object(entry)) validate(entry, key);
+      else check(false, key, '需要对象');
+    });
+  }
+  function validatePortProgress(pp, kpp) {
+    check(object(pp), kpp, '需要对象');
+    if (object(pp)) {
+      const allowedTopKeys = new Set(['groundwork', 'gta', 'provenOn', 'works', 'blocking', 'verification', 'assessedAt']);
+      for (const uk of Object.keys(pp)) check(allowedTopKeys.has(uk), `${kpp}.${uk}`, '不允许的字段');
+      if (pp.groundwork !== undefined) {
+        check(object(pp.groundwork), `${kpp}.groundwork`, '需要对象');
+        if (object(pp.groundwork)) {
+          const allowedGwKeys = new Set(['loader', 'shaders', 'graphics', 'proven']);
+          for (const uk of Object.keys(pp.groundwork)) check(allowedGwKeys.has(uk), `${kpp}.groundwork.${uk}`, '不允许的字段');
+          for (const gk of ['loader', 'shaders', 'graphics', 'proven']) {
+            if (pp.groundwork[gk] !== undefined)
+              check(validFraction(pp.groundwork[gk]), `${kpp}.groundwork.${gk}`, '需要 0–1 之间的数字');
+          }
+        }
+      }
+      if (pp.gta !== undefined) {
+        check(object(pp.gta), `${kpp}.gta`, '需要对象');
+        if (object(pp.gta)) {
+          const allowedGtaKeys = new Set(['loads', 'boots', 'menu', 'ingame', 'fps', 'stability']);
+          for (const uk of Object.keys(pp.gta)) check(allowedGtaKeys.has(uk), `${kpp}.gta.${uk}`, '不允许的字段');
+          for (const lk of ['loads', 'boots', 'menu', 'ingame'])
+            if (pp.gta[lk] !== undefined) check(validFraction(pp.gta[lk]), `${kpp}.gta.${lk}`, '需要 0–1 之间的数字');
+          if (pp.gta.fps !== undefined)
+            check(typeof pp.gta.fps === 'number' && Number.isFinite(pp.gta.fps) && pp.gta.fps >= 0 && pp.gta.fps <= 240, `${kpp}.gta.fps`, '需要 0–240 之间的数字');
+          if (pp.gta.stability !== undefined)
+            check(PORT_STABILITY_VALUES.has(pp.gta.stability), `${kpp}.gta.stability`, `可用：${[...PORT_STABILITY_VALUES].join(', ')}`);
+        }
+      }
+      if (pp.provenOn !== undefined) check(pp.provenOn === null || validPlainText(pp.provenOn, 80), `${kpp}.provenOn`, '需要纯文本字符串或 null，最多 80 个字符');
+      for (const listKey of ['works', 'blocking']) {
+        if (pp[listKey] !== undefined) {
+          check(Array.isArray(pp[listKey]) && pp[listKey].length <= 6, `${kpp}.${listKey}`, '需要最多 6 条的列表');
+          if (Array.isArray(pp[listKey])) pp[listKey].forEach((item, idx) => {
+            check(validPlainText(item, 160), `${kpp}.${listKey}[${idx + 1}]`, '需要 1–160 个字符的纯文本');
+          });
+        }
+      }
+      if (pp.verification !== undefined) check(PORT_VERIFICATION_VALUES.has(pp.verification), `${kpp}.verification`, `可用：${[...PORT_VERIFICATION_VALUES].join(', ')}`);
+      if (pp.assessedAt !== undefined) check(validDate(pp.assessedAt), `${kpp}.assessedAt`, '需要 YYYY-MM-DD 格式的日期');
+    }
+  }
+  for (const key of Object.keys(content)) check(SECTIONS.includes(key), key, '不是可维护的内容分区');
+  for (const key of SECTIONS) check(Object.hasOwn(content, key), key, '缺少分区');
+  const { home, countdown, roadmap, announcements, downloads, news, projects, community } = content;
+  if (object(home)) {
+    required(home.latestUpdate, 'home.latestUpdate', 130);
+    check(home.autoNewsCount === undefined || home.autoNewsCount === 1 || home.autoNewsCount === 2,
+      'home.autoNewsCount', '自动显示的新闻数量必须是 1 或 2');
+    if (home.newsIds !== undefined) {
+      const validList = Array.isArray(home.newsIds) && home.newsIds.length <= 2;
+      check(validList, 'home.newsIds', '最多选择两条新闻');
+      if (validList) {
+        const ids = home.newsIds.map(normalizeNewsId);
+        check(ids.every(Boolean), 'home.newsIds', '需要有效的新闻 ID');
+        check(new Set(ids).size === ids.length, 'home.newsIds', '不能重复选择同一条新闻');
+      }
+    }
+  } else check(false, 'home', '需要对象');
+  if (object(countdown)) {
+    check(!Object.hasOwn(countdown, 'enabled') || typeof countdown.enabled === 'boolean', 'countdown.enabled', '需要 true 或 false');
+    required(countdown.label, 'countdown.label', 110);
+    date(countdown.target, 'countdown.target', true);
+    required(countdown.source, 'countdown.source', 380);
+    if (countdown.buttons === undefined) link(countdown.officialUrl, 'countdown.officialUrl');
+    else {
+      optionalLink(countdown.officialUrl, 'countdown.officialUrl');
+      items(countdown.buttons, 'countdown.buttons', 3, (p, k) => {
+        required(p.label, k + '.label', 25);
+        link(p.url, k + '.url');
+      });
+    }
+  } else check(false, 'countdown', '需要对象');
+  if (object(roadmap)) {
+    if (roadmap.playability !== undefined) {
+      check(object(roadmap.playability), 'roadmap.playability', '需要对象');
+      if (object(roadmap.playability)) {
+        required(roadmap.playability.summary, 'roadmap.playability.summary', 110);
+        optionalLink(roadmap.playability.sourceUrl, 'roadmap.playability.sourceUrl');
+        if (roadmap.playability.status !== undefined) {
+          check(PLAYABILITY_STATUSES.has(roadmap.playability.status), 'roadmap.playability.status', '可用：unplayable、unstable、playable');
+        }
+      }
+    }
+    if (roadmap.communityBuild !== undefined) {
+      const at = 'roadmap.communityBuild';
+      const build = roadmap.communityBuild;
+      check(object(build), at, '需要对象');
+      if (object(build)) {
+        const allowed = new Set(['title', 'summary', 'sourceLabel', 'sourceUrl', 'portProgress']);
+        for (const key of Object.keys(build)) check(allowed.has(key), `${at}.${key}`, '不是支持字段');
+        required(build.title, `${at}.title`, 120);
+        required(build.summary, `${at}.summary`, 800);
+        required(build.sourceLabel, `${at}.sourceLabel`, 80);
+        link(build.sourceUrl, `${at}.sourceUrl`);
+        validatePortProgress(build.portProgress, `${at}.portProgress`);
+      }
+    }
+    if (roadmap.externalProgress !== undefined) {
+      const loc = 'roadmap.externalProgress';
+      check(object(roadmap.externalProgress), loc, '需要对象');
+      if (object(roadmap.externalProgress)) {
+        const allowed = new Set(['title', 'score', 'summary', 'sourceLabel', 'sourceUrl']);
+        for (const key of Object.keys(roadmap.externalProgress)) {
+          check(allowed.has(key), `${loc}.${key}`, '不是支持字段');
+        }
+        required(roadmap.externalProgress.title, `${loc}.title`, 120);
+        check(typeof roadmap.externalProgress.score === 'number' && Number.isFinite(roadmap.externalProgress.score) &&
+          roadmap.externalProgress.score >= 0 && roadmap.externalProgress.score <= 100,
+        `${loc}.score`, '需要 0–100 的有限数字');
+        required(roadmap.externalProgress.summary, `${loc}.summary`, 800);
+        required(roadmap.externalProgress.sourceLabel, `${loc}.sourceLabel`, 80);
+        link(roadmap.externalProgress.sourceUrl, `${loc}.sourceUrl`);
+      }
+    }
+    const { gameplayProgress } = roadmap;
+    if (gameplayProgress !== undefined) {
+      const loc = 'roadmap.gameplayProgress';
+      check(object(gameplayProgress), loc, '需要对象');
+      if (object(gameplayProgress)) {
+        optional(gameplayProgress.title, `${loc}.title`, 24);
+        optional(gameplayProgress.note, `${loc}.note`, 240);
+        const ids = new Set();
+        items(gameplayProgress.milestones, `${loc}.milestones`, 12, (p, k) => {
+          const { id, label, status, evidence, sourceUrl } = p;
+          const validId = validGameplayId(id);
+          check(validId, `${k}.id`, GAMEPLAY_ID_RULE);
+          if (validId) {
+            check(!ids.has(id), `${k}.id`, '节点 ID 不得重复');
+            ids.add(id);
+          }
+          required(label, `${k}.label`, 24);
+          check(GAMEPLAY_STATUSES.has(status), `${k}.status`, '可用：' + [...GAMEPLAY_STATUSES].join(', '));
+          if (status === 'reported' || status === 'completed') {
+            required(evidence, `${k}.evidence`, 160);
+            link(sourceUrl, `${k}.sourceUrl`);
+          } else {
+            optional(evidence, `${k}.evidence`, 160);
+            optionalLink(sourceUrl, `${k}.sourceUrl`);
+          }
+        }, 1);
+      }
+    }
+  } else check(false, 'roadmap', '需要对象');
+  if (object(announcements)) {
+    link(announcements.source, 'announcements.source');
+    check(typeof announcements.checkedOn === 'string' && announcements.checkedOn.length === 10 && validDate(announcements.checkedOn), 'announcements.checkedOn', '需要有效日期 YYYY-MM-DD');
+    items(announcements.items, 'announcements.items', 120, (p, k) => {
+      date(p.datetime, `${k}.datetime`); required(p.title, `${k}.title`, 120); required(p.summary, `${k}.summary`, 1200);
+      if (p.buttons !== undefined) items(p.buttons, `${k}.buttons`, 3, (button, loc) => {
+        required(button.label, `${loc}.label`, 35);
+        link(button.url, `${loc}.url`, 'announcement');
+      });
+    });
+  } else check(false, 'announcements', '需要对象');
+  if (object(downloads)) {
+    optional(downloads.note, 'downloads.note', 240);
+    items(downloads.items, 'downloads.items', 40, (p, k) => {
+      required(p.title, k + '.title', 100);
+      optional(p.description, k + '.description', 220);
+      if (p.channels === undefined) link(p.url, k + '.url', 'download');
+      else {
+        optionalLink(p.url, k + '.url', 'download');
+        items(p.channels, k + '.channels', 12, (channel, loc) => {
+          required(channel.label, loc + '.label', 35);
+          link(channel.url, loc + '.url', 'download');
+        }, 1);
+      }
+    });
+  } else check(false, 'downloads', '需要对象');
+  const newsIds = new Set();
+  items(news, 'news', 400, (p, k) => {
+    if (p.id !== undefined) {
+      const id = normalizeNewsId(p.id);
+      check(Boolean(id), k + '.id', '最多 64 个英文字母、数字或分隔用的连字符');
+      if (id) {
+        check(!newsIds.has(id), k + '.id', '新闻 ID 不得重复');
+        newsIds.add(id);
+      }
+    }
+    check(p.correction === undefined || typeof p.correction === 'boolean', k + '.correction', '需要 true 或 false');
+    date(p.date, `${k}.date`); required(p.title, `${k}.title`, 190);
+    if (p.repo) check(validRepo(p.repo), `${k}.repo`, '仓库格式为 owner/name');
+    else check(p.repo === undefined || p.repo === '', `${k}.repo`, '仓库格式为 owner/name');
+    if (p.sourceUrl) link(p.sourceUrl, `${k}.sourceUrl`);
+  });
+  const repos = new Set();
+  items(projects, 'projects', 160, (p, k) => {
+    check(validRepo(p.repo), `${k}.repo`, '仓库格式为 owner/name');
+    if (validRepo(p.repo)) {
+      const key = p.repo.toLowerCase();
+      check(!repos.has(key), `${k}.repo`, '同一个仓库不能重复');
+      repos.add(key);
+    }
+    check(typeof p.type === 'string' && Object.hasOwn(TYPES, p.type), `${k}.type`, `可用：${Object.keys(TYPES).join(', ')}`);
+    check(typeof p.status === 'string' && Object.hasOwn(STATUSES, p.status), `${k}.status`, `可用：${Object.keys(STATUSES).join(', ')}`);
+    required(p.title, `${k}.title`, 90); required(p.summary, `${k}.summary`, 360); optional(p.progress, `${k}.progress`, 250);
+    if (p.evidence !== undefined) {
+      check(object(p.evidence), k + '.evidence', '需要对象');
+      if (object(p.evidence)) {
+        const { tested, level, blocker, sourceUrl } = p.evidence;
+        required(tested, k + '.evidence.tested', 80);
+        check(EVIDENCE_LEVELS.has(level), k + '.evidence.level', '可用：' + [...EVIDENCE_LEVELS].join(', '));
+        optional(blocker, k + '.evidence.blocker', 150);
+        if (level === 'demonstrated' || level === 'reproduced') link(sourceUrl, k + '.evidence.sourceUrl');
+        else optionalLink(sourceUrl, k + '.evidence.sourceUrl');
+      }
+    }
+    if (p.portProgress !== undefined) validatePortProgress(p.portProgress, `${k}.portProgress`);
+    for (const field of ['game', 'state', 'approach', 'highlight']) optional(p[field], `${k}.${field}`, 3200);
+    if (p.logo) check(typeof p.logo === 'string' && /^\/assets\/logos\/[a-z\d_.-]+\.(?:png|jpe?g|webp)$/i.test(p.logo), `${k}.logo`, '需要本站项目标识路径');
+    if (p.tags !== undefined) check(Array.isArray(p.tags) && p.tags.length <= 40 && p.tags.every(tag => text(tag, 95)), `${k}.tags`, '需要不超过 40 个文本标签');
+  });
+  if (object(community)) {
+    const groups = new Set();
+    items(community.groups, 'community.groups', 12, (p, k) => {
+      required(p.name, `${k}.name`, 40);
+      check(typeof p.number === 'string' && /^\d{5,15}$/.test(p.number), `${k}.number`, '需要 5–15 位群号');
+      check(!groups.has(p.number), `${k}.number`, '群号不能重复'); groups.add(p.number);
+      check(typeof p.full === 'boolean', `${k}.full`, '需要 true 或 false');
+      link(p.url, k + '.url', 'https');
+      if (p.avatar !== undefined) check(validAvatar(p.avatar), k + '.avatar', '请上传不超过 24 KiB 的 WebP 图片');
+    });
+  } else check(false, 'community', '需要对象');
+  return errors;
+}
+
+function withNewsIds(content) {
+  // Reserve explicit IDs first so generated legacy IDs never displace them.
+  const used = new Set(content.news.map(item => normalizeNewsId(item.id)).filter(Boolean));
+  const news = content.news.map(item => {
+    let id = normalizeNewsId(item.id);
+    if (!id) {
+      const fingerprint = JSON.stringify([item.date, item.repo || '', item.title, item.sourceUrl || '']);
+      const hash = createHash('sha256').update(fingerprint).digest('hex').slice(0, 16);
+      const stem = item.date.slice(0, 10) + '-' + hash;
+      id = stem;
+      for (let suffix = 2; used.has(id); suffix++) id = stem + '-' + suffix;
+      used.add(id);
+    }
+    return item.id === id ? item : { ...item, id };
+  });
+  const selection = content.home.newsIds?.map(normalizeNewsId);
+  const selectionChanged = selection?.some((id, index) => id !== content.home.newsIds[index]);
+  if (!selectionChanged && news.every((item, index) => item === content.news[index])) return content;
+  const home = selectionChanged ? { ...content.home, newsIds: selection } : content.home;
+  return { ...content, home, news };
+}
+
+function projectPublicContent(content) {
+  const result = Object.fromEntries(PUBLIC_SECTIONS.map(key => [key, content[key]]));
+  const { newsIds, autoNewsCount = 2, ...home } = content.home;
+  let selected;
+  if (newsIds === undefined) {
+    selected = [...content.news].sort((a, b) => Date.parse(b.date) - Date.parse(a.date)).slice(0, autoNewsCount);
+  } else {
+    const byId = new Map(content.news.map(item => [item.id, item]));
+    selected = newsIds.map(id => byId.get(id)).filter(Boolean);
+  }
+  result.home = { ...home, latestNews: selected.map(({ id, title, correction }) => ({ id, title, correction: correction === true })) };
+  return result;
+}
+
+function preserveRetiredRoadmapFields(saved, proposed) {
+  // Keep old roadmap data available to older readers during a rollback.
+  const fields = new Map(Object.entries(saved));
+  for (const field of fields.keys()) {
+    if (!RETIRED_ROADMAP_FIELDS.has(field) && !Object.hasOwn(proposed, field)) fields.delete(field);
+  }
+  for (const [field, value] of Object.entries(proposed)) {
+    if (!RETIRED_ROADMAP_FIELDS.has(field)) fields.set(field, value);
+  }
+  return Object.fromEntries(fields);
+}
+
+function withCountdownDefault(content, enabled = true) {
+  if (Object.hasOwn(content.countdown, 'enabled')) return content;
+  return { ...content, countdown: { ...content.countdown, enabled } };
+}
+
+class ContentError extends Error {
+  constructor(status, message, details) {
+    super(message);
+    this.status = status;
+    this.details = details;
+  }
+}
+
+function createContentStore({
+  filePath = path.join(process.env.GTAVI_RUNTIME_DIR || path.join(ROOT, '.runtime'), 'content.json'),
+  seedPath,
+  now = Date.now,
+} = {}) {
+  let recordPath = filePath;
+  let record;
+  try { record = JSON.parse(fs.readFileSync(recordPath, 'utf8')); }
+  catch (err) {
+    if (err.code !== 'ENOENT') throw err;
+    recordPath = seedPath;
+    record = seedPath ? JSON.parse(fs.readFileSync(seedPath, 'utf8')) : { content: createFixtures(now()).content, updatedAt: new Date(now()).toISOString() };
+  }
+  const enveloped = object(record) && Object.hasOwn(record, 'content');
+  let { content, updatedAt } = enveloped ? record : { content: record, updatedAt: fs.statSync(recordPath).mtime.toISOString() };
+  if (!validDate(updatedAt, true)) throw new Error('无法读取站点内容的更新时间');
+  // Earlier runtime records may predate the editable project progress field.
+  // Add only missing defaults, without replacing any administrator edits.
+  if (seedPath && recordPath !== seedPath && Array.isArray(content?.projects) && content.projects.some(p => object(p) && p.progress === undefined)) {
+    const defaults = JSON.parse(fs.readFileSync(seedPath, 'utf8'));
+    const progress = new Map((defaults.content || defaults).projects.map(p => [p.repo.toLowerCase(), p.progress]));
+    content.projects = content.projects.map(p => {
+      const fallback = validRepo(p?.repo) ? progress.get(p.repo.toLowerCase()) : undefined;
+      return p?.progress === undefined && fallback !== undefined ? { ...p, progress: fallback } : p;
+    });
+  }
+  const errors = validateContent(content);
+  if (errors.length) throw new Error(`无法读取站点内容：${errors.join('；')}`);
+  const normalized = withNewsIds(content);
+  let needsNewsNormalization = normalized !== content;
+  content = withCountdownDefault(normalized);
+  let etag = revision(content);
+  let queue = Promise.resolve();
+
+  function read(section) {
+    if (section && !SECTIONS.includes(section)) throw new ContentError(404, '没有这个分区');
+    return { content: structuredClone(section ? content[section] : content), etag, updatedAt };
+  }
+
+  function write(proposed, ifMatch, section) {
+    const work = queue.then(async () => {
+      if (section && !SECTIONS.includes(section)) throw new ContentError(404, '没有这个分区');
+      if (!ifMatch) throw new ContentError(428, '请先获取当前版本，再使用 If-Match 保存');
+      if (ifMatch !== etag) throw new ContentError(412, '内容已被别人更新。请先获取最新版，再合并你的修改');
+      const candidate = section ? { ...content, [section]: proposed } : proposed;
+      const details = validateContent(candidate);
+      if (details.length) throw new ContentError(422, '有些内容未通过检查', details);
+      const compatible = candidate.roadmap === content.roadmap ? candidate : {
+        ...candidate, roadmap: preserveRetiredRoadmapFields(content.roadmap, candidate.roadmap),
+      };
+      const next = withCountdownDefault(withNewsIds(compatible), content.countdown.enabled);
+      const nextRevision = revision(next);
+      const changed = nextRevision !== etag;
+      if (changed || needsNewsNormalization) {
+        const directory = path.dirname(filePath);
+        const temp = path.join(directory, `.content-${randomUUID()}.tmp`);
+        const savedAt = changed ? new Date(now()).toISOString() : updatedAt;
+        try {
+          await fs.promises.mkdir(directory, { recursive: true, mode: 0o700 });
+          await fs.promises.writeFile(temp, JSON.stringify({ updatedAt: savedAt, content: next }, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
+          await fs.promises.rename(temp, filePath);
+        } catch (err) {
+          await fs.promises.unlink(temp).catch(() => {});
+          console.error('Content save failed:', err.code || 'write error');
+          throw new ContentError(503, '无法写入内容，请检查服务器存储');
+        }
+        content = next;
+        updatedAt = savedAt;
+        etag = nextRevision;
+        needsNewsNormalization = false;
+      }
+      return read(section);
+    });
+    queue = work.catch(() => {});
+    return work;
+  }
+  return { read, write };
+}
+
+function revision(content) {
+  return '"' + createHash('sha256').update(JSON.stringify(content)).digest('hex') + '"';
+}
+
+module.exports = { createContentStore, validateContent, projectPublicContent, ContentError, SECTIONS, PUBLIC_SECTIONS, TYPES, STATUSES };

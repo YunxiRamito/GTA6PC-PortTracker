@@ -1,0 +1,288 @@
+.traffic-board {
+  --traffic-gap: 14px;
+  --traffic-width: 13rem;
+  --traffic-right: calc(var(--traffic-gap) + env(safe-area-inset-right, 0px));
+  --traffic-left: calc(var(--traffic-gap) + env(safe-area-inset-left, 0px));
+  position: fixed;
+  z-index: 1;
+  right: var(--traffic-right);
+  bottom: calc(var(--traffic-gap) + env(safe-area-inset-bottom, 0px));
+  width: max-content;
+  max-width: calc(100% - var(--traffic-right) - var(--traffic-left));
+  border-radius: 99px;
+  color: var(--muted, #cfc3e9);
+  font-size: .75rem;
+  line-height: 1.25;
+  pointer-events: none;
+  transition: opacity 190ms var(--ease, ease), transform 190ms var(--ease, ease), visibility 190ms;
+}
+
+.traffic-summary, .traffic-panel { pointer-events: auto; }
+.traffic-summary {
+  display: flex;
+  min-height: 33px;
+  align-items: center;
+  justify-content: center;
+  gap: .42rem;
+  margin-left: auto;
+  padding: .34rem .65rem;
+  border: 1px solid rgba(222, 219, 255, .2);
+  border-radius: 99px;
+  background: rgba(24, 19, 36, .92);
+  backdrop-filter: blur(12px);
+  color: var(--paper);
+  cursor: pointer;
+  list-style: none;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  transition: background-color 190ms var(--ease, ease), border-color 190ms var(--ease, ease);
+}
+.traffic-summary::-webkit-details-marker { display: none; }
+.traffic-summary:is(:hover, :focus-visible) { background-color: #332641; border-color: var(--pink); }
+.traffic-panel {
+  position: absolute;
+  inset: auto 0 calc(100% + 8px) auto;
+  width: min(var(--traffic-width), calc(100vw - var(--traffic-left) - var(--traffic-right)));
+  max-height: calc(100dvh - var(--traffic-gap) - env(safe-area-inset-bottom, 0px) - 49px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  display: grid;
+  gap: .55rem;
+  padding: .65rem .75rem;
+  border: 1px solid rgba(222, 219, 255, .2);
+  border-radius: 9px;
+  background: rgba(24, 19, 36, .92);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 4px 18px rgba(6, 3, 12, .25);
+  color: var(--muted, #cfc3e9);
+}
+.traffic-board[open] .traffic-panel { animation: stats-in 230ms var(--ease, ease) both; }
+@keyframes stats-in { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+
+@supports selector(details::details-content) {
+  .traffic-board::details-content { transition: content-visibility 190ms allow-discrete; }
+  .traffic-board .traffic-panel {
+    opacity: 0;
+    transform: translateY(5px);
+    pointer-events: none;
+    transition: opacity 190ms var(--ease, ease), transform 190ms var(--ease, ease);
+  }
+  .traffic-board[open] .traffic-panel {
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+    animation: none;
+  }
+}
+
+@starting-style {
+  .traffic-board { opacity: 0; transform: translateY(5px); }
+  .traffic-board[open] .traffic-panel { opacity: 0; transform: translateY(5px); }
+}
+
+.traffic-board[aria-hidden="true"],
+body:has(.qq-menu[open]) .traffic-board {
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(5px);
+}
+
+.traffic-head {
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  color: var(--paper, #fff1e3);
+  font-weight: 700;
+}
+
+.traffic-dot {
+  flex: none;
+  inline-size: .375rem;
+  block-size: .375rem;
+  border-radius: 50%;
+  background: #ac9dbb;
+  transition: background-color 200ms var(--ease, ease);
+}
+
+.traffic-board[data-state="live"] .traffic-dot { background-color: #8ddfb1; }
+.traffic-board:is([data-state="partial"], [data-state="stale"], [data-state="offline"], [data-state="unavailable"]) .traffic-dot { background-color: #e8b28e; }
+
+.traffic-status {
+  margin-inline-start: auto;
+  color: #eac5af;
+  font-size: .68rem;
+  font-weight: 400;
+}
+
+.traffic-metrics { display: grid; gap: .52rem; margin: 0; }
+.traffic-metric {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: baseline;
+  gap: .15rem .45rem;
+}
+.traffic-board dt { white-space: nowrap; }
+.traffic-board dd {
+  min-inline-size: 0;
+  margin: 0;
+  color: var(--paper, #fff1e3);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+  overflow-wrap: anywhere;
+}
+
+.traffic-metric .traffic-plot {
+  grid-column: 1 / -1;
+  min-width: 0;
+  overflow: hidden;
+  border-radius: 5px;
+  background: rgba(227, 210, 255, .04);
+}
+
+.traffic-plot canvas {
+  --traffic-line: #a0ddc9;
+  --traffic-fill: rgba(160, 221, 201, .17);
+  display: block;
+  width: 100%;
+  height: 1.9rem;
+  opacity: 0;
+  transition: opacity 260ms var(--ease, ease);
+}
+.traffic-plot canvas[data-traffic-series="totalVisits"] {
+  --traffic-line: #cdb9f2;
+  --traffic-fill: rgba(205, 185, 242, .18);
+}
+.traffic-plot canvas[data-ready] { opacity: 1; }
+
+.traffic-range {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted, #cfc3e9);
+  font-size: .64rem;
+}
+.traffic-history-note {
+  margin: -.18rem 0 0;
+  color: var(--muted, #cfc3e9);
+  font-size: .65rem;
+}
+
+/* Keep the footer links clear at the bottom of the scroll range. */
+@media (max-width: 1600px) {
+  .footer:has(~ .traffic-board) { padding-block-end: calc(3.25rem + env(safe-area-inset-bottom, 0px)); }
+}
+
+.qq-popover:has(.qq-group-list) {
+  inline-size: min(19rem, calc(100vw - 2 * var(--gutter, 20px)));
+  padding: .7rem;
+  background: rgba(32, 26, 49, .96);
+  backdrop-filter: blur(16px);
+}
+
+.qq-group-list {
+  display: grid;
+  gap: .4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.qq-group-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .4rem .6rem;
+  padding: .42rem .5rem;
+  border: 1px solid var(--line, rgba(255, 222, 215, .17));
+  border-radius: 8px;
+  background: rgba(10, 8, 22, .46);
+  transition: background-color 200ms var(--ease, ease), border-color 200ms var(--ease, ease);
+}
+
+.qq-group-row:is(:hover, :focus-within) {
+  border-color: rgba(244, 161, 192, .46);
+  background: rgba(63, 42, 68, .62);
+}
+
+.qq-group-info {
+  display: flex;
+  flex: 1 1 6.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .2rem .4rem;
+  min-inline-size: 0;
+  color: var(--paper, #fff1e3);
+  font-size: .86rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.qq-menu .qq-group-info strong { color: inherit; }
+
+.qq-group-number { display: inline-flex; flex: none; align-items: center; gap: .35rem; }
+.qq-group-avatar {
+  flex: none;
+  inline-size: 22px;
+  block-size: 22px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #252037;
+  object-fit: cover;
+  animation: rise-in 220ms var(--ease) both;
+}
+.qq-group-status {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  inline-size: 21px;
+  block-size: 21px;
+  border: 1px solid #f17885;
+  border-radius: 5px;
+  background: #ab263d;
+  color: #fff6f5;
+  font-size: .71rem;
+  font-weight: 700;
+  line-height: 1;
+  animation: rise-in 220ms var(--ease) both;
+}
+
+.qq-join {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: .24rem;
+  min-block-size: 2.125rem;
+  margin-inline-start: auto;
+  padding: .25rem .55rem;
+  border: 1px solid rgba(244, 161, 192, .4);
+  border-radius: 6px;
+  background: rgba(244, 161, 192, .12);
+  color: #ffe1ed;
+  font-size: .78rem;
+  font-weight: 700;
+  line-height: 1.2;
+  transition: background-color 190ms var(--ease, ease), color 190ms var(--ease, ease), border-color 190ms var(--ease, ease), transform 190ms var(--ease, ease);
+}
+
+.qq-join:is(:hover, :focus-visible) { border-color: #f4a1c0; background: #f4a1c0; color: #281827; }
+.qq-join:focus-visible { outline: 2px solid var(--accent, #ffb4a2); outline-offset: 2px; }
+.qq-join:active { transform: translateY(1px); }
+
+@media (max-width: 680px) {
+  .traffic-board { --traffic-gap: 8px; --traffic-width: 12rem; font-size: .72rem; }
+  .qq-join { min-block-size: 2.5rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .traffic-board, .traffic-summary, .traffic-board .traffic-panel, .traffic-dot, .traffic-plot canvas, .qq-group-row, .qq-join { transition: none; }
+  .traffic-board::details-content { transition: none; }
+  .traffic-board[aria-hidden="true"], body:has(.qq-menu[open]) .traffic-board, .qq-join:active { transform: none; }
+}
+
+.poster-updated { margin: 0 0 clamp(8px, 1.5vh, 14px); color: var(--muted); text-align: center; font-size: clamp(.72rem, 1.1vw, .87rem); letter-spacing: .02em; font-variant-numeric: tabular-nums; }
+.poster-updated time { color: var(--paper); }
+.qq-popover-note { color: var(--muted); font-size: .85rem; }
+@media (prefers-reduced-motion: reduce) { .traffic-board[open] .traffic-panel { animation: none; } }

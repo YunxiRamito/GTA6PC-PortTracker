@@ -1,0 +1,39 @@
+.progress-motion-fill {
+  overflow: hidden;
+  transition: width 900ms cubic-bezier(.22,1,.36,1);
+}
+
+/* Override the component width only for the starting style. */
+@starting-style {
+  .progress-motion-fill { width: var(--progress-from, 0%) !important; }
+}
+
+.progress-motion-fill:not(.progress-motion-static)::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(105deg, transparent 30%, rgba(255,255,255,.48) 50%, transparent 70%);
+  animation: progress-motion-shimmer 900ms cubic-bezier(.22,1,.36,1) both;
+}
+
+@keyframes progress-motion-shimmer {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(100%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress-motion-fill { transition: none; }
+  .progress-motion-fill:not(.progress-motion-static)::after { content: none; }
+}
+
+/* Reveal the existing segment pattern without resizing it. */
+@keyframes progress-motion-stage-in {
+  from { clip-path: inset(var(--stage-reveal-inset, 0 100% 0 0)); }
+  to { clip-path: inset(0); }
+}
+
+@keyframes progress-motion-stage-shimmer {
+  from { transform: translate(calc(-1 * var(--stage-shimmer-x, 100%)), calc(-1 * var(--stage-shimmer-y, 0%))); }
+  to { transform: translate(var(--stage-shimmer-x, 100%), var(--stage-shimmer-y, 0%)); }
+}

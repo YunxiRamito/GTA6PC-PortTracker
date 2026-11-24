@@ -1,0 +1,111 @@
+/* Original CSS artwork for the local demo. */
+.demo-brand-mark {
+  display: inline-grid;
+  place-items: center;
+  inline-size: 2.4rem;
+  aspect-ratio: 1;
+  border: 1px solid #9bddce77;
+  border-radius: .42rem;
+  background: #14232c;
+  color: #b4f4e3;
+  font: 900 1.25rem/.9 var(--display);
+  letter-spacing: .05em;
+}
+
+.menu-backdrop-brand .demo-brand-mark {
+  inline-size: clamp(5rem, 16vw, 11rem);
+  border-radius: 1.2rem;
+  font-size: clamp(2.5rem, 8vw, 5rem);
+  opacity: .75;
+}
+
+.hero-opening .poster-shot {
+  border: 1px solid #8cb8c136;
+  background-color: #14202b;
+  box-shadow: 0 1.8rem 5.5rem #05090d75;
+}
+
+.hero-opening .poster-shot .demo-poster {
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  isolation: isolate;
+  background:
+    radial-gradient(ellipse at 56% 30%, #1d655e77, transparent 60%),
+    linear-gradient(154deg, #25334a, #14202b 60%, #0b111c);
+  animation: demo-reveal 850ms cubic-bezier(.2,.75,.2,1) both;
+}
+
+.demo-poster-grid {
+  position: absolute;
+  inset: 42% -35% -45%;
+  z-index: -1;
+  background:
+    repeating-linear-gradient(90deg, transparent 0 54px, #b4f4e32c 55px 56px),
+    repeating-linear-gradient(0deg, transparent 0 45px, #b4f4e32c 46px 47px);
+  transform: perspective(20rem) rotateX(55deg);
+  mask-image: linear-gradient(to bottom, transparent 2%, #000 42%, #000 75%, transparent);
+}
+
+.demo-poster-glow {
+  position: absolute;
+  z-index: -1;
+  inline-size: 69%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 1px solid #b8f4e742;
+  box-shadow: 0 0 0 clamp(.6rem, 1.6vw, 1.6rem) #9bddce0e, 0 0 4rem #7bdcc52a;
+}
+
+.demo-poster-mark {
+  color: #baf4e4;
+  font: 900 clamp(7rem, 18vw, 18rem)/.8 var(--display);
+  letter-spacing: -.075em;
+  margin-inline-end: .075em;
+  text-shadow: 0 0 .35em #55cfa02c;
+  animation: demo-mark-in 950ms cubic-bezier(.35,.75,.12,1) both;
+}
+
+.demo-poster-caption {
+  position: absolute;
+  inset-inline: 0;
+  inset-block-end: 7%;
+  text-align: center;
+  color: #b4e2dd;
+  font: 700 clamp(.57rem, 1.2vw, .8rem)/1.4 var(--mono);
+  letter-spacing: .17em;
+}
+
+.thanks-hero-art {
+  background: radial-gradient(ellipse at 62% 30%, #245e62 0, #152739 40%, #10111f 78%);
+}
+
+.demo-info { padding-block: clamp(2rem, 9vw, 6rem); }
+.demo-info-panel {
+  max-inline-size: 40rem;
+  margin-block-start: 2rem;
+  padding: clamp(1.25rem, 5vw, 2.5rem);
+  border: 1px solid var(--line);
+  border-radius: .6rem;
+  background-color: #181a2a;
+  animation: demo-reveal 400ms cubic-bezier(.2,.75,.2,1) both;
+}
+.demo-info-panel h1 { margin-block: 0 .65rem; }
+.demo-info-panel p { margin-block: 0 1.25rem; }
+.demo-traffic-label { color: var(--muted); font-size: .7rem; }
+
+@keyframes demo-reveal { from { opacity: 0; } to { opacity: 1; } }
+@keyframes demo-mark-in { from { opacity: 0; transform: translateY(11px) scale(.96); } to { opacity: 1; transform: none; } }
+
+@media (max-width: 760px) {
+  .hero-opening .poster-shot .demo-poster { border-radius: inherit; }
+  .demo-poster-mark { font-size: clamp(5rem, 24vw, 13rem); }
+  .demo-poster-glow { inline-size: min(45%, 14rem); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hero-opening .poster-shot .demo-poster, .demo-poster-mark, .demo-info-panel { animation: none; }
+}
+
+.about-hero-media {
+  background: radial-gradient(ellipse at 68% 35%, #246062 0, #182938 47%, #10111f 81%);
+}

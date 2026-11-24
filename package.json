@@ -1,0 +1,14 @@
+{
+  "name": "gtavi-port-tracker-demo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Public source edition of the unofficial GTA VI PC port tracker.",
+  "scripts": {
+    "start": "node server.js",
+    "preview": "node preview.js",
+    "test": "node --test",
+    "audit": "node tools/check-release.js",
+    "sync-review": "node tools/sync-from-site.cjs --review"
+  },
+  "engines": { "node": ">=18" }
+}

@@ -1,0 +1,55 @@
+/* 登录与注册页。颜色、字体和头像裁剪样式来自 admin.css。 */
+.login-body {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: clamp(var(--space-3), 4vw, var(--space-6));
+}
+.login-body.registration-active { align-items: start; }
+.login-layout { width: min(100%, 29rem); min-width: 0; }
+.login-card {
+  display: grid;
+  gap: var(--space-5);
+  padding: clamp(var(--space-4), 5vw, var(--space-6));
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface-1);
+  box-shadow: 0 1.5rem 3.5rem #05060fb0;
+  animation: view-enter var(--medium) var(--ease) both;
+}
+.registration-card[hidden] { display: none; }
+.login-brand { display: grid; gap: .1rem; width: fit-content; color: var(--text); text-decoration: none; border-radius: var(--radius-sm); }
+.login-brand .brand-edition { color: var(--eyebrow); font: 700 var(--text-xs)/1.3 var(--body); letter-spacing: .32em; }
+.login-brand strong { font: 900 1.375rem/1 var(--display); letter-spacing: .02em; }
+.login-heading { display: grid; gap: var(--space-2); padding-bottom: var(--space-4); border-bottom: 1px solid var(--line); }
+.login-heading h1 { font-size: clamp(2rem, 1.6rem + 1.5vw, 2.5rem); overflow-wrap: anywhere; }
+.login-heading > p:last-child:not(:first-child) { max-width: 54ch; color: var(--muted); font-size: var(--text-sm); }
+.login-form { display: grid; gap: var(--space-3); }
+.login-form input { min-width: 0; }
+.login-feedback { min-height: 1.4rem; color: var(--muted); font-size: var(--text-sm); overflow-wrap: anywhere; transition: color var(--fast) var(--ease); }
+.login-feedback:empty { display: none; }
+.login-feedback[data-tone='error'] { color: var(--danger); }
+.login-feedback[data-tone='success'] { color: var(--success); }
+.retry-feedback { color: var(--warning); font-size: var(--text-xs); }
+.login-submit { width: 100%; min-height: 2.75rem; }
+.login-switch.text-button {
+  justify-self: center;
+  min-height: 2.5rem;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  color: var(--accent);
+  background: transparent;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: .2em;
+  transition: background-color var(--fast) var(--ease), border-color var(--fast) var(--ease);
+}
+@media (hover: hover) {
+  .login-switch:not(:disabled):hover { border-color: var(--line-strong); background: var(--surface-2); }
+}
+@media (max-width: 28rem) {
+  .login-body, .login-body.registration-active { padding: var(--space-2); }
+  .login-card { gap: var(--space-4); padding: var(--space-4); }
+  .avatar-crop-canvas { width: min(100%, 7rem); }
+}

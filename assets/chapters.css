@@ -1,0 +1,353 @@
+/* Download chapter. Keep the content-width gutters and bleed only the backdrop. */
+#downloads {
+  --downloads-bg: #10111f;
+  --downloads-lilac: #cfc3ee;
+  --downloads-muted: #bcb4d0;
+  --downloads-line: rgba(207, 195, 238, .22);
+
+  position: relative;
+  isolation: isolate;
+  padding-block: clamp(56px, 7vw, 104px) clamp(48px, 6vw, 88px);
+  color: var(--paper, #fff1e3);
+}
+
+#downloads::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-color: var(--downloads-bg);
+  box-shadow: 0 0 0 100vmax var(--downloads-bg);
+  clip-path: inset(0 -100vmax);
+  pointer-events: none;
+}
+
+#downloads .chapter-heading {
+  border-block-end-color: var(--downloads-line);
+}
+
+#downloads :is(.chapter-index, .chapter-heading h2 span) {
+  color: var(--downloads-lilac);
+}
+
+#downloads :is(.chapter-note, .download-note) {
+  color: var(--downloads-muted);
+}
+
+#downloads .download-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(12px, 1.6vw, 22px);
+  margin-block-start: clamp(20px, 3vw, 36px);
+}
+
+#downloads .download-entry { min-inline-size: 0; align-self: start; }
+
+#downloads .download-card {
+  cursor: pointer;
+  list-style: none;
+  display: grid;
+  grid-template:
+    'icon arrow' auto
+    'copy copy' 1fr / minmax(0, 1fr) auto;
+  align-items: start;
+  gap: clamp(16px, 2vw, 26px) 12px;
+  min-inline-size: 0;
+  padding: clamp(16px, 2.3vw, 28px);
+  border: 1px solid var(--downloads-line);
+  border-radius: 10px;
+  background: linear-gradient(145deg, rgba(207, 195, 238, .06), transparent 72%) #181827;
+  color: inherit;
+  overflow-wrap: anywhere;
+  transition: border-color 220ms var(--ease), background-color 220ms var(--ease),
+    transform 260ms var(--ease);
+}
+
+#downloads .download-card::-webkit-details-marker { display: none; }
+#downloads .download-card::marker { content: ''; }
+#downloads .download-card:is(:hover, :focus-visible),
+#downloads .download-entry[open] > .download-card {
+  border-color: var(--downloads-lilac);
+  background-color: #242139;
+}
+
+#downloads .download-card:focus-visible {
+  outline: 2px solid #bcebd7;
+  outline-offset: 4px;
+}
+
+#downloads .download-card-icon {
+  grid-area: icon;
+  display: grid;
+  place-items: center;
+  inline-size: 44px;
+  block-size: 44px;
+  border-radius: 9px;
+  background-color: rgba(207, 195, 238, .1);
+  color: var(--downloads-lilac);
+  font-size: 1.125rem;
+}
+
+#downloads .download-card-copy {
+  grid-area: copy;
+  display: grid;
+  gap: 5px;
+  min-inline-size: 0;
+}
+
+#downloads .download-card-copy strong {
+  font-size: clamp(1.2rem, 1rem + 1vw, 1.7rem);
+  line-height: 1.16;
+}
+
+#downloads .download-card-copy > span {
+  color: var(--downloads-muted);
+  font-size: .925rem;
+  line-height: 1.5;
+}
+
+#downloads .download-card-arrow {
+  grid-area: arrow;
+  place-self: center end;
+  inline-size: 18px;
+  block-size: 18px;
+  color: var(--downloads-lilac);
+}
+
+#downloads .download-card-copy > .download-card-action { color: var(--downloads-lilac); font-size: .79rem; font-weight: 700; }
+#downloads .download-card-arrow { transition: transform 230ms var(--ease); }
+#downloads .download-entry[open] .download-card-arrow { transform: rotate(180deg); }
+
+#downloads .download-channel-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 0;
+  padding: 10px 2px 0;
+  list-style: none;
+}
+#downloads .download-channel-list li { max-inline-size: 100%; }
+#downloads .download-channel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-block-size: 39px;
+  max-inline-size: 100%;
+  padding: 6px 11px;
+  border: 1px solid var(--downloads-line);
+  border-radius: 7px;
+  background: #211d33;
+  color: #e4d8f4;
+  font-size: .88rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+  transition: border-color 220ms var(--ease), background-color 220ms var(--ease), color 220ms var(--ease), transform 220ms var(--ease);
+}
+#downloads .download-channel span { min-inline-size: 0; }
+#downloads .download-channel:is(:hover, :focus-visible) { border-color: var(--downloads-lilac); background: #34294b; color: #fff6fc; }
+#downloads .download-channel:active { transform: translateY(2px); }
+
+@media (prefers-reduced-motion: no-preference) {
+  #downloads .download-entry[open] > .download-channel-list { animation: tracker-enter 260ms var(--ease) both; }
+  @supports (interpolate-size: allow-keywords) and selector(details::details-content) {
+    #downloads .download-entry::details-content {
+      interpolate-size: allow-keywords;
+      block-size: 0;
+      overflow: clip;
+      overflow-clip-margin: 6px;
+      opacity: 0;
+      transition: block-size 250ms var(--ease), opacity 200ms var(--ease), content-visibility 250ms allow-discrete;
+    }
+    #downloads .download-entry[open]::details-content { block-size: auto; opacity: 1; }
+    #downloads .download-entry[open] > .download-channel-list { animation: none; }
+  }
+}
+
+#downloads .download-note {
+  margin-block-start: clamp(14px, 2vw, 22px);
+  font-size: .875rem;
+  overflow-wrap: anywhere;
+}
+
+/* Project disclosure and GitHub icons */
+#dashboard .project-disclosure {
+  margin-block: clamp(16px, 2.4vw, 28px);
+  padding-block-start: clamp(12px, 1.6vw, 20px);
+  border-block-start: 1px solid var(--line, rgba(255, 222, 215, .17));
+}
+
+#dashboard .project-disclosure > #projectsToggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-block-size: 44px;
+  max-inline-size: 100%;
+  padding: 8px 15px;
+  border: 1px solid var(--tracker-control-line, var(--line, #6c5b72));
+  border-radius: 999px;
+  background-color: var(--tracker-panel, #1b1425);
+  color: var(--paper, #fff1e3);
+  font: 700 .9rem/1.3 var(--body, system-ui, sans-serif);
+  text-align: start;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+  transition: border-color 200ms var(--ease), background-color 200ms var(--ease),
+    transform 200ms var(--ease);
+}
+
+#dashboard .project-disclosure > #projectsToggle:is(:hover, :focus-visible, [aria-expanded='true']) {
+  border-color: var(--accent, #ffb4a2);
+  background-color: var(--tracker-raised, #251a30);
+}
+
+#dashboard .project-disclosure > #projectsToggle:focus-visible {
+  outline: 2px solid var(--accent, #ffb4a2);
+  outline-offset: 4px;
+}
+
+#dashboard #projectsToggle .project-toggle-arrow {
+  flex: none;
+  inline-size: 16px;
+  block-size: 16px;
+  color: var(--accent, #ffb4a2);
+  fill: currentColor;
+  transition: transform 240ms var(--ease);
+}
+
+#dashboard #projectsToggle[aria-expanded='true'] .project-toggle-arrow {
+  transform: rotate(.5turn);
+}
+
+#dashboard .octicon {
+  display: inline-block;
+  flex: none;
+  inline-size: 16px;
+  block-size: 16px;
+  fill: currentColor;
+  vertical-align: text-bottom;
+}
+
+#dashboard .stat > .octicon {
+  align-self: center;
+}
+
+@media (max-width: 760px) {
+  #downloads .download-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  #downloads .download-card {
+    grid-template: 'icon copy arrow' auto / auto minmax(0, 1fr) auto;
+    align-items: center;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  #downloads .chapter-heading.is-visible ~ :is(.download-grid, .download-note):not([data-reveal]),
+  #dashboard .project-disclosure > #projectsToggle {
+    animation: chapters-enter 440ms var(--ease);
+  }
+
+  @media (hover: hover) {
+    #downloads .download-card:hover {
+      transform: translateY(-2px);
+    }
+  }
+
+  #downloads .download-card:active,
+  #dashboard .project-disclosure > #projectsToggle:active {
+    transform: translateY(1px);
+  }
+}
+
+@keyframes chapters-enter {
+  from { opacity: .65; translate: 0 6px; }
+  to { opacity: 1; translate: 0 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #downloads .download-card,
+  #dashboard .project-disclosure > #projectsToggle,
+  #dashboard #projectsToggle .project-toggle-arrow {
+    transition: none;
+  }
+}
+
+/* Plain-language news and project summaries. */
+#timeline .tl-date { display: flex; align-items: baseline; flex-wrap: wrap; gap: .45em; letter-spacing: 0; }
+#timeline .tl-date-day { font-weight: 750; color: var(--paper); }
+#timeline .tl-time { color: var(--muted); font-weight: 400; }
+#dashboard .card-identity { min-block-size: 39px; margin-block-end: 10px; padding-block-end: 8px; }
+#dashboard .card-logo { inline-size: 31px; block-size: 31px; }
+#dashboard .card-top { margin-block-end: 9px; }
+#dashboard .card-title { margin-block-end: 8px; font: 700 clamp(1.12rem, 1.42vw, 1.36rem)/1.25 var(--body); }
+#dashboard .card-summary {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0 0 13px;
+  color: var(--muted);
+  font-size: .89rem;
+  line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+#dashboard .card-details { margin-bottom: 10px; color: var(--muted); font-size: .79rem; }
+#dashboard .card-details summary, #dashboard .card-more { color: var(--accent); cursor: pointer; }
+#dashboard .card-details[open] .card-more { animation: tracker-enter 230ms var(--ease) backwards; }
+
+/* Announcement summaries are kept local; the browser never opens wallets or RPCs. */
+#announcements { padding-block: clamp(50px, 7vw, 92px) clamp(22px, 4vw, 60px); }
+#announcements .chapter-heading h2 { font-size: clamp(2rem, 5.25vw, 4.1rem); }
+#announcements .announcement-source { color: var(--pink); font-size: .84rem; white-space: nowrap; }
+.announcement-buttons { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
+.announcement-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  min-height: 36px;
+  padding: 6px 12px;
+  border: 1px solid rgba(255, 180, 162, .42);
+  border-radius: 99px;
+  color: var(--accent);
+  background: rgba(255, 180, 162, .07);
+  max-width: 100%;
+  font-size: .82rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+  transition: color 220ms var(--ease), background-color 220ms var(--ease), transform 220ms var(--ease);
+}
+.announcement-button .ui-icon { flex: none; }
+.announcement-button:is(:hover, :focus-visible) { color: #21151f; background: var(--accent); }
+.announcement-button:active { transform: translateY(2px); }
+@media (prefers-reduced-motion: reduce) {
+  .announcement-button { transition: none; }
+  .announcement-button:active { transform: none; }
+}
+.announcement-note { margin-top: 13px; color: var(--muted); font-size: .8rem; }
+.announcement-list { display: grid; gap: 10px; margin: 16px 0 0; padding: 0; list-style: none; }
+.announcement-item {
+  display: grid;
+  grid-template-columns: minmax(8rem, 10rem) minmax(0, 1fr);
+  gap: 10px 20px;
+  min-width: 0;
+  padding: 16px clamp(12px, 2vw, 22px);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #191625;
+  transition: border-color 230ms var(--ease), background-color 230ms var(--ease);
+}
+.announcement-item:hover { border-color: #726382; background: #211b31; }
+.announcement-item:nth-child(n+4):not([hidden]) { animation: tracker-enter 340ms var(--ease) backwards; }
+.announcement-item time { padding-top: 3px; color: var(--pink); font: 700 .78rem/1.5 var(--mono); }
+.announcement-item h3 { font-size: 1.02rem; line-height: 1.4; }
+.announcement-item p { margin-top: 4px; color: var(--muted); font-size: .86rem; overflow-wrap: anywhere; }
+.announcements-toggle { display: inline-flex; align-items: center; gap: 6px; margin-top: 13px; padding: 8px 14px; border: 1px solid var(--line); border-radius: 99px; background: #191424; cursor: pointer; font-size: .83rem; transition: border-color 230ms var(--ease), color 230ms var(--ease), background-color 230ms var(--ease); }
+.announcements-toggle:hover { color: var(--pink); border-color: var(--pink); background: #261d33; }
+.announcements-toggle .ui-icon { transition: transform 240ms var(--ease); }
+.announcements-toggle[aria-expanded='true'] .ui-icon { transform: rotate(180deg); }
+@media (max-width: 620px) {
+  .announcement-item { grid-template-columns: 1fr; gap: 4px; }
+  .announcement-item time { padding-top: 0; }
+}
