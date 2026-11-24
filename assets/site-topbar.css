@@ -300,7 +300,7 @@ html.menu-open, html.menu-open body { overflow: hidden; }
 .menu-footer { margin-top: auto; padding-top: 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #c6b6e7; font-size: .85rem; }
 .menu-footer a { color: #fff5e9; white-space: nowrap; }
 
-@media (max-width: 480px) {
+@media (max-width: 350px) {
   .site-brand-cluster { gap: 6px; }
   .site-github-link { inline-size: 34px; padding-inline: 0; }
   .site-github-link span { display: none; }
