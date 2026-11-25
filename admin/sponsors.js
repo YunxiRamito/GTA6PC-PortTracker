@@ -1,5 +1,10 @@
-(() => {
+(async () => {
   'use strict';
+
+  if (window.AdminAccount) {
+    await window.AdminAccount.ready;
+    if (!window.AdminAccount.canEdit) return;
+  }
 
   const endpoint = '/api/admin/sponsors';
   const messageLimit = 240;
@@ -413,6 +418,10 @@
   reload.addEventListener('click', () => loadList(reload));
   conflictReload.addEventListener('click', () => loadList(conflictReload));
   save.addEventListener('click', saveList);
-  window.AdminShell?.register('sponsors', { dirty: () => (dirty() ? '鸣谢名单' : '') });
-  loadList();
+  const shell = window.AdminShell;
+  shell?.register('sponsors', {
+    dirty: () => (dirty() ? '鸣谢名单' : ''),
+    enter() { if (!savedMessages && !operation) void loadList(); },
+  });
+  if (shell?.page !== 'console') void loadList();
 })();

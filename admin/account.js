@@ -370,12 +370,12 @@
     return tr;
   }
 
-  async function loadAccounts({ quiet = false } = {}) {
+  async function loadAccounts() {
     if (!canManageAccounts || accountsBusy) return;
     accountsBusy = true;
     byId('accounts-reload').disabled = true;
     byId('create-account-submit').disabled = true;
-    if (!quiet) setStatus(byId('accounts-status'), 'neutral', '正在读取账户…');
+    setStatus(byId('accounts-status'), 'neutral', '正在读取账户…');
     try {
       const result = await request('/api/admin/accounts');
       if (!Array.isArray(result?.accounts)
@@ -508,33 +508,40 @@
     event.preventDefault();
     const form = byId('create-account-form');
     if (!canCreateAccounts || accountsBusy || !form.reportValidity()) return;
-    const username = byId('create-account-username').value.trim();
-    const password = byId('create-account-password').value;
+    const usernameField = byId('create-account-username');
+    const passwordField = byId('create-account-password');
+    const roleField = byId('create-account-role');
+    const username = usernameField.value.trim();
+    const password = passwordField.value;
     if (!validNewPassword(password)) {
       setStatus(byId('create-account-status'), 'error', '初始密码须为 8–128 个字符，且至少包含 1 个英文字母。');
-      byId('create-account-password').focus();
+      passwordField.focus();
       return;
     }
     accountsBusy = true;
     byId('create-account-submit').disabled = true;
     byId('accounts-reload').disabled = true;
-    setStatus(byId('create-account-status'), 'neutral', '正在创建账户…');
+    form.inert = true;
+    setStatus(byId('create-account-status'), 'neutral', '正在创建账号…');
     try {
       const response = await request('/api/admin/accounts', {
         method: 'POST',
-        body: { username, password, role: byId('create-account-role').value },
+        body: { username, password, role: roleField.value },
       });
       if (!response?.account?.id || response.account.username !== username) throw new Error('服务器未确认账户已创建。');
-      byId('create-account-password').value = '';
-      setStatus(byId('create-account-status'), 'success', '账户已创建；首次登录时需要设置新密码。');
-      accountsBusy = false;
-      await loadAccounts({ quiet: true });
+      usernameField.value = '';
+      passwordField.value = '';
+      roleField.value = 'user';
+      accountsLoaded = false;
+      setStatus(byId('create-account-status'), 'success', '账号已创建。首次登录时需要设置新密码。');
     } catch (error) {
-      announceError(byId('create-account-status'), error, '创建账户失败，请重试。');
+      announceError(byId('create-account-status'), error, '创建账号失败，请重试。');
     } finally {
       accountsBusy = false;
+      form.inert = false;
       byId('create-account-submit').disabled = false;
       byId('accounts-reload').disabled = false;
+      if (!byId('accounts-view').hidden && !byId('account-list-panel').hidden && !accountsLoaded) loadAccounts();
     }
   }
 
@@ -574,9 +581,23 @@
     byId('password-only').hidden = !capabilities.forced;
     byId('account-regular').hidden = !capabilities.canUseProfile;
     byId('profile-fields').disabled = !capabilities.canUseProfile || !savedProfile;
-    byId('create-account-panel').hidden = !canCreateAccounts;
+    if (!canCreateAccounts) byId('create-account-panel').hidden = true;
+    if (!canManageAccounts) byId('account-list-panel').hidden = true;
     byId('admin-layout').hidden = false;
     byId('admin-loading').hidden = true;
+  }
+
+  function passwordDraftLabel() {
+    const prefix = capabilities.forced ? 'password' : 'regular-password';
+    const dirty = ['current', 'new', 'confirm'].some(field => byId(`${prefix}-${field}`).value !== '');
+    return dirty ? (capabilities.forced ? '设置新密码表单' : '更改密码表单') : '';
+  }
+
+  function creationDraftLabel() {
+    if (!canCreateAccounts) return '';
+    const role = byId('create-account-role').value;
+    const dirty = byId('create-account-username').value || byId('create-account-password').value || (role && role !== 'user');
+    return dirty ? '创建账号表单' : '';
   }
 
   function registerViews() {
@@ -595,17 +616,17 @@
       dirty() {
         const profileDirty = Boolean(savedProfile) && (byId('profile-nickname').value.trim() !== savedProfile.nickname
           || byId('profile-email').value.trim() !== savedProfile.email || avatarCropper?.value !== savedProfile.avatar);
-        if (profileDirty) return '个人资料';
-        const prefix = capabilities.forced ? 'password' : 'regular-password';
-        const passwordDirty = ['current', 'new', 'confirm'].some(field => byId(`${prefix}-${field}`).value !== '');
-        return passwordDirty ? (capabilities.forced ? '设置新密码表单' : '更改密码表单') : '';
+        return profileDirty ? '个人资料' : passwordDraftLabel();
       },
     });
     shell.register('accounts', {
-      enter() { if (!accountsLoaded && !accountsBusy) loadAccounts(); },
-      dirty() {
-        return byId('create-account-username').value || byId('create-account-password').value ? '创建账号表单' : '';
+      enter(route) {
+        const showList = route.part === 'accounts' && canManageAccounts;
+        byId('account-list-panel').hidden = !showList;
+        byId('create-account-panel').hidden = route.part !== 'create' || !canCreateAccounts;
+        if (showList && !accountsLoaded && !accountsBusy) loadAccounts();
       },
+      dirty: creationDraftLabel,
     });
   }
 
@@ -673,6 +694,11 @@
         current: 'regular-password-current', next: 'regular-password-new', confirmation: 'regular-password-confirm',
         button: byId('regular-password-submit'), status: byId('regular-password-status'), forced: false,
       });
+    });
+    window.addEventListener('beforeunload', event => {
+      if (window.AdminShell?.leaveConfirmed || !(passwordDraftLabel() || creationDraftLabel())) return;
+      event.preventDefault();
+      event.returnValue = '';
     });
     window.addEventListener('pagehide', () => avatarCropper?.dispose(), { once: true });
   }

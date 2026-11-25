@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0c0d1a">
   <title>反馈与通知 · 控制台 · LOCAL CONSOLE</title>
-  <meta name="port-tracker-public-origin" content="" />
   <link rel="stylesheet" href="/admin/admin.css">
   <link rel="stylesheet" href="/admin/feedback.css">
   <link rel="stylesheet" href="/assets/site-topbar.css" />
@@ -30,7 +29,7 @@
         <a href="/about/" data-site-path="/about/">关于</a>
       </nav>
       <div class="nav-actions">
-      <button class="menu-toggle" id="menuToggle" type="button" aria-label="打开网站菜单" aria-haspopup="dialog" aria-controls="siteMenu" aria-expanded="false">
+        <button class="menu-toggle" id="menuToggle" type="button" aria-label="打开网站菜单" aria-haspopup="dialog" aria-controls="siteMenu" aria-expanded="false">
           <span class="menu-glyph" aria-hidden="true"><span></span><span></span></span>
         </button>
       </div>
@@ -126,7 +125,12 @@
                 </div>
               </div>
               <div class="field">
-                <label for="notice-popup">弹窗公告</label>
+                <label for="notice-popup-title">弹窗标题（可选）</label>
+                <input id="notice-popup-title" name="popupTitle" type="text" autocomplete="off" aria-describedby="notice-popup-title-count">
+                <p class="hint feedback-count" id="notice-popup-title-count">0 / 80 字符</p>
+              </div>
+              <div class="field">
+                <label for="notice-popup">弹窗正文</label>
                 <textarea id="notice-popup" name="popup" rows="4" aria-describedby="notice-popup-count"></textarea>
                 <p class="hint feedback-count" id="notice-popup-count">0 / 1000 字符</p>
               </div>

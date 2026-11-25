@@ -6,7 +6,7 @@
 
 ## 公开仓库与协作
 
-本公开源码仓库位于 [YunxiRamito/gta6-pc-port-dashboard](https://github.com/YunxiRamito/gta6-pc-port-dashboard)。它保留可独立运行的通用网站逻辑、Node.js API、存储接口骨架和管理控制台示例；仓库内的项目、新闻、账号和访问统计都是虚构或空壳数据。
+本公开源码仓库位于 [YunxiRamito/GTA6PC-PortTracker](https://github.com/YunxiRamito/GTA6PC-PortTracker)。它保留可独立运行的通用网站逻辑、Node.js API、存储接口骨架和管理控制台示例；仓库内的项目、新闻、账号和访问统计都是虚构或空壳数据。
 
 发布前审计明确排除了：用户数据库、生产账号与会话、运行目录、弹幕/反馈/鸣谢运行数据、环境文件、私钥、令牌、生产域名凭据、部署配置、浏览器 profile、`.preview/` 与日志，以及原站封面图、原始图片和音频。`docs/demo-screenshot.png` 是脱敏演示截图，封面使用 CSS 绘制。
 

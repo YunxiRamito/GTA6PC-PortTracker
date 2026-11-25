@@ -149,11 +149,11 @@ body[data-admin-page]:has(> [data-site-topbar='console']) :is(main, main :is(inp
 .site-brand-cluster {
   display: flex;
   align-items: center;
-  justify-self: start;
+  container: site-brand / inline-size;
   gap: clamp(8px, 1vw, 14px);
   min-inline-size: 0;
 }
-.site-brand-cluster .site-brand { justify-self: unset; }
+.site-brand-cluster .site-brand, .site-github-link { flex: none; }
 .site-github-link {
   display: inline-flex;
   align-items: center;
@@ -300,8 +300,7 @@ html.menu-open, html.menu-open body { overflow: hidden; }
 .menu-footer { margin-top: auto; padding-top: 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #c6b6e7; font-size: .85rem; }
 .menu-footer a { color: #fff5e9; white-space: nowrap; }
 
-@media (max-width: 350px) {
-  .site-brand-cluster { gap: 6px; }
+@container site-brand (width < 240px) {
   .site-github-link { inline-size: 34px; padding-inline: 0; }
   .site-github-link span { display: none; }
 }
@@ -318,6 +317,9 @@ html.menu-open, html.menu-open body { overflow: hidden; }
   .menu-chapters strong { font-size: clamp(1.15rem, 4.8vw, 1.65rem); }
 }
 @media (max-width: 350px) {
+  .site-brand-cluster { gap: 6px; }
+  .site-topbar .site-github-link { inline-size: 30px; padding-inline: 0; }
+  .site-github-link span { display: none; }
   .site-topbar .site-brand { gap: 6px; }
   .site-topbar .nav-actions { gap: 5px; }
 }

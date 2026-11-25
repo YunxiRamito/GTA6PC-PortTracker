@@ -550,6 +550,11 @@
       meta.prepend(element('span', 'danmaku-moderation-badge', '管理事件'));
       return item;
     }
+    if (Number.isInteger(record.groupTag) && record.groupTag >= 1 && record.groupTag <= 8) {
+      const groupTag = element('span', 'danmaku-group-tag', `${record.groupTag}群`);
+      groupTag.dataset.groupTag = String(record.groupTag);
+      meta.prepend(groupTag);
+    }
     if (record.admin === true) {
       item.dataset.admin = 'true';
       meta.prepend(element('span', 'danmaku-admin-badge', '管理员'));

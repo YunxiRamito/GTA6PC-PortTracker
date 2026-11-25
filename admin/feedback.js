@@ -9,6 +9,8 @@
   const inboxEndpoint = '/api/admin/feedback';
   const noticesEndpoint = '/api/admin/site-notices';
   const textLimit = 1000;
+  const popupTitleLimit = 80;
+  const noticeRevision = /^"[a-f0-9]{64}"$/;
   const uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
   const unknownResponse = '服务返回的数据格式不正确，请重试。';
   const beijingTime = new Intl.DateTimeFormat('zh-CN', {
@@ -17,7 +19,7 @@
   });
 
   const byId = id => document.getElementById(id);
-  const sessionBanner = byId('feedback-session');
+  const sessionBanners = ['feedback-session', 'site-notices-session'].map(byId).filter(Boolean);
   const inboxList = byId('inbox-list');
   const inboxStatus = byId('inbox-status');
   const refresh = byId('inbox-refresh');
@@ -33,6 +35,8 @@
   const linkUrlInput = byId('notice-link-url');
   const linkLabelInput = byId('notice-link-label');
   const linkLabelHint = byId('notice-link-label-hint');
+  const popupTitleInput = byId('notice-popup-title');
+  const popupTitleCount = byId('notice-popup-title-count');
   const popupInput = byId('notice-popup');
   const popupCount = byId('notice-popup-count');
 
@@ -42,6 +46,8 @@
   let inboxLoading = false;
   let pendingReplies = 0;
   let savedNotices = null;
+  let noticesEtag = null;
+  let noticesStale = false;
   let noticesBusy = false;
   let sessionFailures = 0;
 
@@ -50,7 +56,7 @@
     if (element.textContent !== message) element.textContent = message;
   }
 
-  async function request(url, body) {
+  async function request(url, body, ifMatch) {
     const recovery = sessionBanner.hidden ? 0 : sessionFailures;
     const options = {
       method: body === undefined ? 'GET' : 'PUT',
@@ -59,6 +65,7 @@
     };
     if (body !== undefined) {
       options.headers['Content-Type'] = 'application/json';
+      if (ifMatch !== undefined) options.headers['If-Match'] = ifMatch;
       options.body = JSON.stringify(body);
     }
 
@@ -70,26 +77,30 @@
     }
     if (response.status === 401) {
       sessionFailures += 1;
-      sessionBanner.hidden = false;
+      for (const banner of sessionBanners) banner.hidden = false;
       throw new Error('请重新登录。');
     }
     if (!response.ok) {
       const data = response.status < 500 ? await response.json().catch(() => null) : null;
-      throw new Error(typeof data?.error === 'string' ? data.error : '管理服务暂时无法完成请求，请重试。');
+      const error = new Error(typeof data?.error === 'string' ? data.error : '管理服务暂时无法完成请求，请重试。');
+      error.status = response.status;
+      throw error;
     }
     const data = await response.json().catch(() => { throw new Error(unknownResponse); });
-    if (recovery && recovery === sessionFailures) sessionBanner.hidden = true;
-    return data;
+    if (recovery && recovery === sessionFailures) {
+      for (const banner of sessionBanners) banner.hidden = true;
+    }
+    return url === noticesEndpoint ? { data, etag: response.headers.get('etag') } : data;
   }
 
-  function readText(input, count) {
+  function readText(input, count, limit = textLimit) {
     const value = input.value.trim();
     // The API counts Unicode code points. HTML maxlength counts UTF-16 units.
     const length = Array.from(value).length;
-    const invalid = length > textLimit;
+    const invalid = length > limit;
     input.setAttribute('aria-invalid', String(invalid));
     count.dataset.invalid = String(invalid);
-    count.textContent = `${length} / ${textLimit} 字符${invalid ? '，超出上限' : ''}`;
+    count.textContent = `${length} / ${limit} 字符${invalid ? '，超出上限' : ''}`;
     return { value, invalid };
   }
 
@@ -268,44 +279,62 @@
   function syncNotices() {
     const header = readText(headerInput, headerCount);
     const popup = readText(popupInput, popupCount);
+    const title = readText(popupTitleInput, popupTitleCount, popupTitleLimit);
+    const emptyPopup = Boolean(title.value && !popup.value);
+    const titleInvalid = title.invalid || emptyPopup || /[\u2028\u2029]/.test(title.value);
+    if (titleInvalid && !title.invalid) {
+      popupTitleInput.setAttribute('aria-invalid', 'true');
+      popupTitleCount.dataset.invalid = 'true';
+      popupTitleCount.textContent += emptyPopup ? '，请填写正文或清空标题' : '，标题须写在同一行';
+    }
     const headerChanged = savedNotices && !sameTextareaText(header.value, savedNotices.header);
     const popupChanged = savedNotices && !sameTextareaText(popup.value, savedNotices.popup);
+    const titleChanged = savedNotices && title.value !== savedNotices.popupTitle;
     const label = linkLabelInput.value.trim();
     const url = linkUrlInput.value.trim();
     const headerLink = header.value && url ? { label, url } : null;
     const savedLink = savedNotices?.headerLink;
     const linkChanged = (headerLink?.label ?? '') !== (savedLink?.label ?? '')
       || (headerLink?.url ?? '') !== (savedLink?.url ?? '');
-    const changed = Boolean(headerChanged || popupChanged || linkChanged);
+    const changed = Boolean(headerChanged || popupChanged || titleChanged || linkChanged);
     const labelInvalid = Boolean(headerLink && (!label || Array.from(label).length > 80));
     linkLabelInput.setAttribute('aria-invalid', String(labelInvalid));
     linkLabelHint.dataset.invalid = String(labelInvalid);
     linkLabelHint.textContent = labelInvalid ? '请输入 1–80 个字符作为链接显示文字。' : '填写链接地址后，显示文字最多 80 个字符。';
     noticesFields.disabled = !savedNotices;
-    noticesSave.disabled = noticesBusy || !changed || header.invalid || popup.invalid || labelInvalid;
-    for (const input of [headerInput, popupInput, linkUrlInput, linkLabelInput]) input.readOnly = noticesBusy;
-    // Preserve the saved line endings in untouched fields. A changed popup is shown again to visitors.
+    noticesSave.disabled = noticesBusy || !noticesEtag || noticesStale || !changed || header.invalid || popup.invalid || titleInvalid || labelInvalid;
+    for (const input of [headerInput, popupInput, popupTitleInput, linkUrlInput, linkLabelInput]) input.readOnly = noticesBusy;
+    noticesRetry.hidden = Boolean(savedNotices && !noticesStale && noticesEtag);
+    noticesRetry.textContent = noticesStale && changed ? '放弃草稿并重新读取' : '重新读取公告';
+    // An unchanged body keeps its line endings and its delivery ID.
+    const titleOnly = titleChanged && !headerChanged && !popupChanged && !linkChanged;
     return {
       changed,
-      payload: {
+      payload: titleOnly ? { popupTitle: title.value } : {
         header: headerChanged ? header.value : savedNotices?.header ?? '',
         popup: popupChanged ? popup.value : savedNotices?.popup ?? '',
-        ...(headerLink && { headerLink }),
+        popupTitle: title.value,
+        ...(linkChanged && { headerLink }),
       },
     };
   }
 
-  function applyNotices(data) {
+  function applyNotices({ data, etag }) {
     const link = data?.headerLink;
+    if (!noticeRevision.test(etag ?? '')) throw new Error('未取得公告版本，无法安全保存。');
     if (typeof data?.header !== 'string' || (data.popup !== null && typeof data.popup?.text !== 'string')
+      || (data.popup?.title !== undefined && typeof data.popup.title !== 'string')
       || (link != null && (typeof link.label !== 'string' || typeof link.url !== 'string'))) {
       throw new Error(unknownResponse);
     }
-    savedNotices = { header: data.header, popup: data.popup?.text ?? '', headerLink: link ?? null };
+    savedNotices = { header: data.header, popup: data.popup?.text ?? '', popupTitle: data.popup?.title ?? '', headerLink: link ?? null };
+    noticesEtag = etag;
+    noticesStale = false;
     headerInput.value = savedNotices.header;
     linkUrlInput.value = link?.url ?? '';
     linkLabelInput.value = link?.label ?? '';
     popupInput.value = savedNotices.popup;
+    popupTitleInput.value = savedNotices.popupTitle;
   }
 
   async function loadNotices() {
@@ -323,13 +352,13 @@
       noticesBusy = false;
       syncNotices();
       noticesRetry.disabled = false;
-      noticesRetry.hidden = Boolean(savedNotices);
       if (returnFocus && document.activeElement === document.body) (savedNotices ? headerInput : noticesRetry).focus();
     }
   }
 
   noticesForm.addEventListener('input', () => {
     const { changed } = syncNotices();
+    if (noticesStale) return;
     setStatus(noticesStatus, 'neutral', changed ? '公告有未保存的修改。' : '没有未保存的修改。');
   });
   noticesForm.addEventListener('submit', async event => {
@@ -342,9 +371,12 @@
     syncNotices();
     setStatus(noticesStatus, 'neutral', '正在保存公告…');
     try {
-      applyNotices(await request(noticesEndpoint, payload));
+      const result = await request(noticesEndpoint, payload, noticesEtag);
+      noticesEtag = null;
+      applyNotices(result);
       setStatus(noticesStatus, 'success', '公告已保存。');
     } catch (error) {
+      if (error.status === 412 || !noticesEtag) noticesStale = true;
       setStatus(noticesStatus, 'error', `保存公告失败。${error.message}`);
     } finally {
       noticesBusy = false;
@@ -354,11 +386,23 @@
   });
 
   // 公告修改和未发送的回复草稿只在本页保留；离开前提示。
-  function draftLabel() {
-    if (savedNotices && syncNotices().changed) return '站点公告';
-    return replyDrafts.size ? '反馈回复' : '';
+  function draftLabel(area) {
+    if ((!area || area === 'site-notices') && savedNotices && syncNotices().changed) return '站点公告';
+    return (!area || area === 'feedback') && replyDrafts.size ? '反馈回复' : '';
   }
-  window.AdminShell?.register('feedback', { dirty: draftLabel });
+  let inboxEntered = false;
+  const shell = window.AdminShell;
+  shell?.register('feedback', {
+    dirty: draftLabel,
+    enter(route) {
+      if (route.part === 'notices') {
+        if (!savedNotices) void loadNotices();
+      } else if (!inboxEntered) {
+        inboxEntered = true;
+        void loadInbox();
+      }
+    },
+  });
   window.addEventListener('beforeunload', event => {
     if (window.AdminShell?.leaveConfirmed || !draftLabel()) return;
     event.preventDefault();
@@ -368,6 +412,8 @@
   refresh.addEventListener('click', () => loadInbox());
   more.addEventListener('click', () => { if (nextOffset !== null) loadInbox(nextOffset); });
   noticesRetry.addEventListener('click', loadNotices);
-  loadInbox();
-  loadNotices();
+  if (shell?.page !== 'console') {
+    void loadInbox();
+    void loadNotices();
+  }
 })();

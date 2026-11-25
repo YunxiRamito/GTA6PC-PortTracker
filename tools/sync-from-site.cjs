@@ -30,14 +30,15 @@ function cut(text, begin, end, substitute = '') {
 }
 
 function chrome(html) {
-  html = html.replace(/^.*(?:vi-favicon\.png|<script[^>]*src="\/assets\/(?:player|feedback|danmaku|danmaku-mount|traffic)\.js"|<link[^>]*href="\/assets\/(?:player|feedback|danmaku)\.css").*(?:\n|$)/gm, '');
+  html = html.replace(/^.*(?:vi-favicon\.png|<script[^>]*src="\/assets\/(?:player|player-state|obs-import|feedback|danmaku|danmaku-mount|traffic)\.js(?:\?[^"\n]*)?"|<link[^>]*href="\/assets\/(?:player|obs-widget|feedback|danmaku)\.css(?:\?[^"\n]*)?").*(?:\n|$)/gm, '');
   html = html.replace('</head>', '<link rel="stylesheet" href="/assets/demo.css" />\n</head>');
   html = html.replace(/<a\b[^>]*\bhref="https?:\/\/[^"\n]+"[^>]*>[^]*?<\/a>/gi, '');
   html = html.replace(/<img\b[^>]*\bsrc="\/assets\/ui\/vi-mark\.webp"[^>]*>/g, '<span class="brand-mark demo-brand-mark" aria-hidden="true">VI</span>');
   html = html.replace(/^.*<span class="site-forum-placeholder".*\n/gm, '');
-  html = cut(html, '    <div class="nav-actions">', '      <button class="menu-toggle"', '    <div class="nav-actions">\n');
+  html = replace(html, /^( +<div class="nav-actions">\n)[^]*?(^ +<button class="menu-toggle")/m, '$1$2');
   html = html.replace(/^.*(?:<audio id="siteMusic"|id="musicStatus"|<div data-danmaku-mount><\/div>).*(?:\n|$)/gm, '');
   html = html.replace(/\bdata-danmaku-mount\s+/g, '');
+  html = html.replace(/^.*<meta name="port-tracker-public-origin"[^>]*>.*(?:\n|$)/gm, '');
   html = html.replace(/  <aside class=\"feedback-site-notice".*?<\/aside>\n/s, '');
   html = html.replaceAll('反馈建议', '反馈说明').replaceAll('href=\"#about"', 'href=\"/about/"');
   return html;
@@ -99,19 +100,21 @@ function homepage(text) {
   html = html.replace('id="onlineCompactCount">—', 'class="demo-traffic-label">本地</span><span id="onlineCompactCount">—');
   html = html.replace('class="traffic-head">访问统计', 'class="traffic-head">访问统计 · 本地');
   html = html.replace('</head>', '<script defer src="/assets/traffic.js"></script>\n</head>');
-  return html;
+  return html.trimEnd() + '\n';
 }
 
 function archive(text) {
-  let js = cut(text, '    var logoUrl = safeCardImageUrl', '    var fallbackIcon =');
-  js = cut(js, '  var GITHUB_IMAGE_HOSTS', '  function safeColor(');
+  let js = cut(text, '    var logoUrl =', '    var fallbackIcon =');
+  js = cut(js, '  function safeProjectLogoUrl(', '  function safeColor(');
+  js = cut(js, "    grid.addEventListener('error',", "    grid.addEventListener('animationstart',");
   js = replace(js, /    var url = escapeAttr\(safeHttpsUrl\(p\.url\).*\);/, "    var url = escapeAttr(safeHttpsUrl(p.url));");
-  js = replace(js, "'<div class=\"card-identity\">' + logo + avatar + fallbackIcon +", "'<div class=\"card-identity\">' + fallbackIcon +");
+  js = replace(js, "'<div class=\"card-identity\">' + image + fallbackIcon +", "'<div class=\"card-identity\">' + fallbackIcon +");
   js = replace(js,
     `'\x3ca class="card-repo" href="' + url + '" target="_blank" rel="noopener">' + escapeHtml(p.repo) + '</a>' +`,
     `(url ? '<a class="card-repo" href="' + url + '" target="_blank" rel="noopener">' + escapeHtml(p.repo) + '</a>' :
           '<span class="card-repo" tabindex="-1">' + escapeHtml(p.repo) + '</span>') +`);
   js = replace(js, /        ('<a class="card-link"[^\n]+)<\/a>' \+\n/, (match, link) => `        (url ? ${link}</a>' : '') +\n`);
+  js = cut(js, '  function focusCommunityBuild() {', '    if (state.data && !state.projectsExpanded', '  function focusCommunityBuild() {\n');
   js = replace(js, '  function safeHttpsUrl(value) {', '  function safeHttpsUrl(value) {\n    if (typeof value === \'string\' && /^#[a-z0-9][a-z0-9-]*$/i.test(value)) return value;');
   return js.replaceAll('PortWatch VI 外部评估', '外部评估')
     .replaceAll('PortWatch VI 评估进度', '外部评估进度');
@@ -120,59 +123,75 @@ function archive(text) {
 function contentBrowser(text) {
   let js = cut(text, '  function groupAvatar(', '  const renderers =');
   js = replace(js, ', community: renderCommunity', '');
-  js = js.replace(/^        community: \['qqGroupNote'[^\n]+\n/m, '');
+  js = replace(js, /^        community: \['qqGroupNote'[^\n]+\n/m, '');
+  js = replace(js, /^  async function refresh\(\) \{\n[^]*?^  \}\n/m, refresh => refresh
+    .replace(/^([ \t]*)if \(key === ['"]community['"]\) \{\n[^]*?^\1\}[ \t]*\n/gm, '')
+    .replace(/const stamp = key === 'community'\s*\? JSON\.stringify\(section, [^\n]+\)\s*:\s*JSON\.stringify\(section\);/g,
+      'const stamp = JSON.stringify(section);'));
   js = replace(js, 'function link(el, value, allowMagnet = false) {', 'function link(el, value) {\n    if (typeof value === \'string\' && /^#[a-z0-9][a-z0-9-]*$/i.test(value)) {\n      el.href = value;\n      el.removeAttribute(\'target\');\n      el.removeAttribute(\'rel\');\n      return true;\n    }');
   js = replace(js, '  function safeHttpsSource(value) {', '  function safeHttpsSource(value) {\n    if (typeof value === \'string\' && /^#[a-z0-9][a-z0-9-]*$/i.test(value)) return new URL(value, document.baseURI);');
   js = replace(js, "(url.protocol === 'https:' || (allowMagnet && url.protocol === 'magnet:'))", "url.protocol === 'https:'");
   js = replace(js, "label: item.url?.startsWith('magnet:') ? '磁力链接' : '下载资源'", "label: '查看资源'");
   js = replace(js, 'link(anchor, channel.url, true)', 'link(anchor, channel.url)');
   js = replace(js, "'暂无下载条目。'", "(data.note || '暂无示例资源。')");
-  js = cut(js, '      const logo = p?.logo;', '      box.append(avatar);', `      const initial = document.createElement('span');
+  js = replace(js, '    const publiclyListed = new Set(publicProjects);\n', '');
+  js = cut(js, '      project: projectMap.get(r.id)', '      x: (r.score / 100) * W,', '      project: projectMap.get(r.id),\n');
+  js = cut(js, "    if (leaderId === 'community-build') {", "    if (typeof leaderId === 'string'", "    if (leaderId === 'community-build') return '#community-build';\n");
+  js = cut(js, '      const logo =', '      box.append(avatar);', `      const initial = document.createElement('span');
       initial.className = 'pp-avatar-fb';
       initial.setAttribute('aria-hidden', 'true');
       initial.textContent = (name || '?').slice(0, 2);
-      avatar.append(initial);
+      art.append(initial);
 `);
+  js = cut(js, '  function safeProjectLogoUrl(', '  // ---- end port progress renderer ----');
+  if (/renderCommunity|qqGroup|key\s*===\s*['"]community['"]|repositoryAvatarUrl/.test(js)) {
+    throw new Error('Unexpected QQ or repository image code in public content renderer');
+  }
   return neutralizeSourceLabels(js);
 }
 
 function contentServer(text) {
-  let js = cut(text, 'function preserveRetiredRoadmapFields(', 'function revision(');
-  js = js.slice(0, js.indexOf('function revision('));
-  js = cut(js, 'const { createHash, randomUUID }', 'const SECTIONS', "const { createHash } = require('node:crypto');\n\n");
-  js = js.replace(/^const (?:RETIRED_ROADMAP_FIELDS|WEBP_PREFIX|MAX_AVATAR_BYTES).*\n/gm, '');
-  js = cut(js, 'function validUrl(', 'function normalizeNewsId(', `function validUrl(value, kind = 'https') {
-  if (typeof value !== 'string' || !value || value.length > 2048 || /[\\u0000-\\u0020\\u007f\\\\]/.test(value)) return false;
-  if (/^#[a-z0-9][a-z0-9-]*$/i.test(value) || (kind === 'announcement' && /^\\/(?!\\/)/.test(value))) return true;
-  try {
-    const url = new URL(value);
-    return url.protocol === 'https:' && !url.username && !url.password;
-  } catch { return false; }
+  let js = backend.content(text);
+  // The demo ships its own scoring model and public dashboard projections.
+  js = replace(js, /^const \{[^}]+\} = require\('\.\.\/assets\/port-score'\);\n/m, '');
+  js = cut(js, '  function validateQuality(', '  function validatePortProgress(');
+  js = replace(js, /const stages = \['loads', 'boots', 'menu', 'ingame'(?:, 'prison')?, 'rendered'\];/, "const stages = ['loads', 'boots', 'menu', 'ingame'];");
+  js = replace(js, /\[\.\.\.stages, 'fps', 'stability', 'quality'(?:, 'milestoneLabel')?\]/, "[...stages, 'fps', 'stability']");
+  if (js.includes('function withMilestoneLabel(')) {
+    js = cut(js, 'function withMilestoneLabel(', 'function projectPublicContent(');
+    js = replace(js, /^\s*if \(pp\.gta\.milestoneLabel !== undefined\)\n[^\n]*normalizeMilestoneLabel[^\n]*\n/m, '\n');
+    js = replace(js, '  result.roadmap = mapRoadmapBuilds(content.roadmap, projectMilestoneLabel);\n', '');
+    js = replace(js, 'withCountdownDefault(withNormalizedMilestoneLabels(normalized))', 'withCountdownDefault(normalized)');
+    js = replace(js, 'withNewsIds(withNormalizedMilestoneLabels(compatible))', 'withNewsIds(compatible)');
+    js = replace(js, 'projectPublicContent, projectMilestoneLabel,', 'projectPublicContent,');
+  }
+  js = replace(js, /^ *if \(pp\.gta\.quality !== undefined\) validateQuality.*\n/m, '');
+  js = replace(js, "if (Object.hasOwn(roadmap, 'privateRepositories')) {", 'if (roadmap.privateRepositories !== undefined) {');
+  js = replace(js, "items(roadmap.privateRepositories, 'roadmap.privateRepositories', 32,",
+    "items(roadmap.privateRepositories, 'roadmap.privateRepositories', 160,");
+  js = cut(js, '    required(build.title,', '    link(build.sourceUrl,', `    for (const [field, max] of [['title', 120], ['summary', 800], ['sourceLabel', 80]]) {
+      check(validPlainText(build[field], max), loc + '.' + field, '需要 1–' + max + ' 个字符的纯文本');
+    }
+`);
+  js = replace(js, /^const (?:WEBP_PREFIX|MAX_AVATAR_BYTES) = .*;\n/gm, '');
+  js = cut(js, 'function validAvatar(', 'function normalizeNewsId(');
+  js = cut(js, '  if (object(community)) {', '  return errors;', `  check(
+    object(community) && Object.keys(community).length === 1 && Object.hasOwn(community, 'groups') &&
+      Array.isArray(community.groups) && community.groups.length === 0,
+    'community.groups', '演示版必须使用空列表',
+  );
+`);
+  js = replace(js, '  const { newsIds, autoNewsCount = 2, ...home } = content.home;',
+    '  result.community = { groups: [] };\n  const { newsIds, autoNewsCount = 2, ...home } = content.home;');
+  return replace(js, 'function mergeCompatibleRoadmap(', `function projectPrivateRepositories(roadmap) {
+  return (roadmap?.privateRepositories ?? []).map(({ id, title, summary, sourceLabel, sourceUrl, portProgress }) => ({
+    id: 'private-repo-' + id, title, summary, sourceLabel, sourceUrl, portProgress,
+  }));
 }
 
-`);
-  js = cut(js, '  if (object(community)) {', '  return errors;', `  check(object(community) && Array.isArray(community.groups) && community.groups.length === 0,
-    'community.groups', '演示版必须使用空列表');
-`);
-  return js.trimEnd() + '\n\nmodule.exports = { validateContent, projectPublicContent, withNewsIds, TYPES, STATUSES };\n';
-}
-
-function projectServer(text) {
-  const start = '    const byType = {}, byStatus = {};';
-  const end = '\n    // Record history';
-  const body = text.indexOf(start);
-  const finish = text.indexOf(end, body);
-  if (body < 0 || finish < 0) throw new Error('Expected dashboard projection changed');
-  let js = text.slice(body, finish).split('\n').map(line => line.replace(/^  /, '')).join('\n');
-  js = replace(js, 'now()', 'Date.parse(generatedAt)');
-  js = js.replace(/now\(\)/g, 'Date.parse(generatedAt)');
-  js = replace(js, ', url: `https://github.com/${p.repo}`', '');
-  js = replace(js, "n.sourceUrl || (n.repo ? `https://github.com/${n.repo}` : '')", "n.sourceUrl || ''");
-  js = replace(js, /  const currentLive = .*\n/, '');
-  js = replace(js, /  const repos = .*\n/, '');
-  js = replace(js, '[...editorial, ...currentLive]', '[...editorial]');
-  js = replace(js, 'history: progressHistory ? progressHistory.read() : []', 'history');
-  return `'use strict';\n\nconst { TYPES, STATUSES } = require('./_content');\nconst { overall: portOverall } = require('../assets/port-score');\nconst DAY = 24 * 60 * 60 * 1000;\nconst repoKey = repo => repo.toLowerCase();\nconst newestFirst = (a, b) => Date.parse(b.date) - Date.parse(a.date);\n\nfunction projectDashboard(content, { metadata, generatedAt, history }) {\n${js}\n  return {\n    generatedAt, stale: false, rateLimited: false, refreshing: false,\n    types: TYPES, statuses: STATUSES, stats: { total: projects.length, totalStars, activeWeek, byType, byStatus },\n    projects, timeline, progress: portProgress,\n  };\n}\n\nmodule.exports = { projectDashboard };\n`;
+function mergeCompatibleRoadmap(`)
+    .replace('module.exports = { createContentStore, validateContent, projectPublicContent,',
+      'module.exports = { createContentStore, validateContent, projectPublicContent, projectPrivateRepositories,');
 }
 
 function motion(text) {
@@ -226,13 +245,8 @@ function removePersonalBrand(text) {
 }
 
 function consoleMarkup(text) {
-  const local = text.replace(/href="(https:\/\/[^"\s]+)"/g, (href, value) => {
-    const url = new URL(value);
-    if (url.pathname === '/' || /^\/(?:about|thanks|feedback)\/?$/.test(url.pathname)) {
-      return `href="${url.pathname}${url.hash}"`;
-    }
-    return href;
-  });
+  const local = text.replace(/href="https?:\/\/[^"\s]+" data-site-path="(\/(?:about\/|thanks\/|feedback\/)?)"/g,
+    'href="$1" data-site-path="$1"');
   let html = neutralizeSourceLabels(chrome(local));
   if (html.includes('id="username"')) {
     html = html.replace('</main>', '<p class="admin-local-help">首次运行时，请先用仓库提供的命令初始化本地站长账号。</p>\n</main>');
@@ -240,10 +254,44 @@ function consoleMarkup(text) {
   return removePersonalBrand(html);
 }
 
+function consoleEditor(text) {
+  let js = cut(text, '  const avatarSize =', '  const projectTypes =');
+  js = replace(js, /^    community: \{\n[^]*?^    \},\n/m, '');
+  js = replace(js, /^.*(?:const avatarJobs =|avatarJobs\.clear\(\)).*\n/gm, '');
+  js = replace(js, / \|\| avatarJobs\.size(?: > 0)?/g, '');
+  js = replace(js, "    return content;\n  }", `    if (Object.keys(content.community).length !== 1 || content.community.groups.length !== 0) {
+      throw new Error('community.groups 必须为空列表。');
+    }
+    return content;
+  }`);
+  js = replace(js, /^ *const id = text\(title\)\.trim\(\).*;\n/m, "        const id = 'legacy';\n");
+  js = replace(js, "placeholder: '例如 cgbj'", "placeholder: '例如 sample-launch'");
+  js = replace(js, '  const MAX_PRIVATE_REPOSITORIES = 32;', '  const MAX_PRIVATE_REPOSITORIES = 160;');
+  js = replace(js, /^ *const summary = isRecord\(item\.portProgress\?\.gta\?\.quality\).*;\n/m, "        const summary = '移植评分';\n");
+  return consoleScript(js);
+}
+
+function consoleRouter(text) {
+  return consoleScript(replace(text, /^    \['community',[^\n]+\],\n/m, ''));
+}
+
+function server(text) {
+  let js = backend.server(text);
+  js = replace(js, /^const .*require\('\.\/api\/_(?:repository-images|qq-group-counts|obs)'\);\n/gm, '');
+  js = cut(js, '    getContent() {', '    getDashboard(force)', `    getContent() {
+      const { content, updatedAt, etag } = store.read();
+      return { content: projectPublicContent(content), updatedAt, revision: etag };
+    },
+`);
+  return replace(js,
+    /^(      )const \{ payload, etag \} = publicContentResponse\(data, now\(\)\);\n([^]*?)^\1return sendJson\(res, 200, payload, headers, req\);$/m,
+    '$1const etag = data.revision;\n$2$1return sendJson(res, 200, data, headers, req);');
+}
+
 function consoleScript(text) {
   const generic = neutralizeSourceLabels(removePersonalBrand(text));
   return generic
-    .replaceAll('支持 HTTPS 或磁力链接。', '支持 HTTPS 链接。')
+    .replaceAll('支持 HTTPS 或磁力链接', '支持 HTTPS 链接')
     .replaceAll('例如 磁力链接', '例如 项目文档')
     .replace("/^magnet:/i.test(text(item.url)) ? '磁力链接' : '下载资源'", "'下载资源'");
 }
@@ -265,7 +313,7 @@ const inputs = {
   'api/traffic.js': text => text.replaceAll('process.env.TRACKER_PUBLIC_ORIGIN', "''"),
   'admin/account.js': null,
   'admin/admin.css': null,
-  'admin/admin.js': consoleScript,
+  'admin/admin.js': consoleEditor,
   'admin/avatar.js': null,
   'admin/danmaku.js': null,
   'admin/feedback.css': null,
@@ -275,7 +323,7 @@ const inputs = {
   'admin/login.css': null,
   'admin/login.html': consoleMarkup,
   'admin/login.js': null,
-  'admin/router.js': consoleScript,
+  'admin/router.js': consoleRouter,
   'admin/shell.js': consoleScript,
   'admin/sponsors.css': null,
   'admin/sponsors.html': consoleMarkup,
@@ -306,20 +354,18 @@ const inputs = {
   'assets/site-widgets.css': null,
   'assets/traffic-history.js': null,
   'assets/traffic.js': null,
-  'api/_content.js': backend.content,
+  'api/_content.js': contentServer,
   'api/_feedback.js': backend.feedback,
   'api/_danmaku.js': backend.danmaku,
   'api/_danmaku-filter.js': backend.filter,
-  'api/dashboard.js': backend.dashboard,
-  'api/preview-dashboard.js': projectServer,
-  'server.js': backend.server,
+  // The dashboard projections, scoring model, and score tests are demo-owned.
+  'server.js': server,
   'scripts/bootstrap-account-owner.js': backend.bootstrap,
   'api/_rss.js': value => value.replace('非官方 GTA VI 移植观测站的社区新闻与工程动态。', 'GTA VI 移植观测站源码演示。全部条目为虚构数据。'),
-    'test/port-score.test.js': value => {
-    const label = ['VIc', 'tory'].join('');
-    return value.replace(`${label} ingame 0.8`, 'partial in-game stage (0.8)').replaceAll(label, 'Example');
-  },
 };
+
+// Catch direct QQ locators and production-only adapters that new source code could reintroduce.
+const privateDependencies = /\b(?:tencent:\/\/|(?:[a-z\d-]+\.)*qq\.com\b)|\/(?:assets\/(?:repository-avatars\/|qq-logo\.png)|api\/_(?:repository-images|qq-group-counts|obs)\b)/i;
 
 function run() {
   const mode = process.argv[2];
@@ -327,13 +373,13 @@ function run() {
   if (mode !== '--review' && mode !== '--apply') throw new Error('Use --review or --apply <review SHA-256>');
   const entries = [];
   for (const [rel, transform] of Object.entries(inputs)) {
-    const from = rel === 'api/preview-dashboard.js' ? 'api/dashboard.js' : rel;
-    const file = path.join(source, from);
-    if (fs.realpathSync(file) !== path.join(fs.realpathSync(source), from.replaceAll('/', path.sep))) {
+    const file = path.join(source, rel);
+    if (fs.realpathSync(file) !== path.join(fs.realpathSync(source), rel.replaceAll('/', path.sep))) {
       throw new Error(`Unexpected source path: ${rel}`);
     }
     const raw = canonicalText(fs.readFileSync(file, 'utf8'));
     const output = transform ? transform(raw) : raw;
+    if (privateDependencies.test(output)) throw new Error(`Production-only dependency in public candidate: ${rel}`);
     const target = path.join(published, rel);
     const before = fs.existsSync(target) ? canonicalText(fs.readFileSync(target, 'utf8')) : null;
     entries.push({ rel, output, target, changed: output !== before });

@@ -18,7 +18,7 @@
   let closing = false;
   let backdropPress = false;
 
-  const GITHUB_REPOSITORY_URL = 'https://github.com/YunxiRamito/gta6-pc-port-dashboard';
+  const GITHUB_REPOSITORY_URL = 'https://github.com/YunxiRamito/GTA6PC-PortTracker';
   const loopback = /^(?:localhost|127\.0\.0\.1|\[::1\])$/;
 
   function readOrigin(value) {
@@ -53,7 +53,8 @@
     icon.classList.add('ui-icon');
     icon.setAttribute('aria-hidden', 'true');
     const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
-    use.setAttribute('href', '/assets/ui/octicons.svg#repo-16');
+    const adminTopbar = topbar.dataset.siteTopbar === 'login' || topbar.dataset.siteTopbar === 'console';
+    use.setAttribute('href', adminTopbar ? '/assets/ui/fluent.svg#document' : '/assets/ui/octicons.svg#repo-16');
     icon.append(use);
 
     const label = document.createElement('span');

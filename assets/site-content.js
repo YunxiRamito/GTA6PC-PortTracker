@@ -577,8 +577,8 @@ if (typeof module === 'object' && module.exports) {
   function showPlayability(playability, fallback = '可玩情况待核对。') {
     const label = playabilityLabels.get(playability?.status);
     const summary = typeof playability?.summary === 'string' ? playability.summary.trim() : '';
-    // A structured verdict takes precedence over the legacy free-text verdict.
-    const answer = label || summary;
+    // The saved summary is the verdict. The status sets the indicator and supplies a fallback.
+    const answer = summary || label;
     const url = playability?.sourceUrl;
     const safeSource = answer && typeof url === 'string' && url.length <= 2048 &&
       /^https:\/\//i.test(url) && !/[\u0000-\u0020\u007f\\]/.test(url) ? url : undefined;
@@ -772,6 +772,53 @@ if (typeof module === 'object' && module.exports) {
     }
   }
 
+  function progressMilestones(progress) {
+    const labels = progress && progress.labels && typeof progress.labels === 'object' ? progress.labels : {};
+    const source = Array.isArray(progress?.milestones) && progress.milestones.length
+      ? progress.milestones
+      : (Array.isArray(portScoreApi?.MILESTONES) ? portScoreApi.MILESTONES : []);
+    const result = [];
+    const seen = new Set();
+    source.slice(0, 16).forEach((item, index) => {
+      const key = typeof item?.key === 'string' ? item.key.trim() : (typeof item?.id === 'string' ? item.id.trim() : '');
+      if (!key || seen.has(key)) return;
+      const label = typeof item?.label === 'string' && item.label.trim()
+        ? item.label.trim()
+        : (typeof labels[key] === 'string' && labels[key].trim() ? labels[key].trim() : key);
+      const at = Number.isFinite(Number(item?.at)) ? Math.min(100, Math.max(0, Number(item.at)))
+        : source.length > 1 ? (index / (source.length - 1)) * 100 : 0;
+      seen.add(key);
+      result.push({ key, label, at });
+    });
+
+    const isRendered = item => /render|渲染/i.test(item.key) || /render|渲染/i.test(item.label);
+    if (!result.some(isRendered)) {
+      const before = result.find(item => item.key === 'ingame');
+      const after = result.find(item => item.key === 'fps30' || /30/.test(item.key));
+      if (before && after && after.at > before.at) {
+        result.push({ key: 'rendered', label: '完全渲染', at: before.at + (after.at - before.at) / 2 });
+        result.sort((a, b) => a.at - b.at);
+      }
+    }
+    return result.length ? result : [{ key: 'groundwork', label: '基础准备', at: 0 }];
+  }
+
+  function milestoneByKey(milestones, key) {
+    if (!key) return null;
+    return milestones.find(item => item.key === key) ||
+      milestones.find(item => /render|渲染/i.test(item.key) && /render|渲染/i.test(String(key))) || null;
+  }
+
+  function mobileMilestoneKeys(milestones) {
+    const keys = new Set();
+    if (!milestones.length) return keys;
+    keys.add(milestones[0].key);
+    keys.add(milestones[milestones.length - 1].key);
+    const ingame = milestoneByKey(milestones, 'ingame');
+    if (ingame) keys.add(ingame.key);
+    return keys;
+  }
+
   function renderHomeProgress(progress, score) {
     const number = $('homeProgressScore');
     const meter = $('homeProgressMeter');
@@ -841,7 +888,7 @@ if (typeof module === 'object' && module.exports) {
       if (ppNum.textContent !== scoreText) ppNum.textContent = scoreText;
     }
     if (ppBarWrap) ppBarWrap.removeAttribute('aria-hidden');
-    if (avatarBox) avatarBox.setAttribute('aria-hidden', 'true');
+    if (avatarBox) avatarBox.removeAttribute('aria-hidden');
     if (track && fill) {
       track.setAttribute('role', 'progressbar');
       track.removeAttribute('aria-label');
@@ -867,23 +914,24 @@ if (typeof module === 'object' && module.exports) {
     }
     if (ppEmpty) ppEmpty.hidden = true;
 
-    const milestones = portScoreApi.MILESTONES;
+    const milestones = progressMilestones(progress);
 
     // Leader line
     if (ppLeader && progress.leaderName) {
       if (ppLeaderLink && ppLeaderLink.textContent !== progress.leaderName) ppLeaderLink.textContent = progress.leaderName;
+      if (ppLeaderLink) ppLeaderLink.href = progressArchiveHref(dashboardData, progress.leaderId);
       const ms = $('portProgressLeaderMilestone');
-      if (ms) ms.textContent = progress.leaderReachedLabel || '';
+      if (ms) ms.textContent = progress.leaderReachedLabel || milestoneByKey(milestones, progress.leaderReached)?.label || '';
     }
 
     // Stats
     if (ppStats) {
       const setDd = (id, val) => { const el = $(id); if (el) el.textContent = val; };
-      const furthestMs = milestones.find(m => m.key === progress.furthestMilestone);
+      const furthestMs = milestoneByKey(milestones, progress.furthestMilestone);
       setDd('ppStatFurthest', furthestMs ? furthestMs.label : '—');
       setDd('ppStatTop3', progress.top3avg != null ? progress.top3avg.toFixed(1) + '%' : '—');
       setDd('ppStatBoots', (progress.bootsCount || 0) + ' / ' + (progress.rankedCount || 0));
-      setDd('ppStatTotal', dashboardData?.stats?.total ?? '—');
+      setDd('ppStatTotal', dashboardData?.stats?.total || '—');
       ppStats.hidden = false;
     }
 
@@ -900,20 +948,23 @@ if (typeof module === 'object' && module.exports) {
         }));
       }
       if (labels) {
-        const furthestIdx = milestones.findIndex(m => m.key === (progress.furthestMilestone || 'groundwork'));
+        const furthest = milestoneByKey(milestones, progress.furthestMilestone || 'groundwork');
+        const furthestIdx = furthest ? milestones.indexOf(furthest) : 0;
+        const mobileKeys = mobileMilestoneKeys(milestones);
         labels.replaceChildren(...milestones.map((m, i) => {
-          const mark = node('div', i <= furthestIdx ? 'ppl-item is-reached' : 'ppl-item');
-          mark.dataset.milestoneKey = m.key;
+          const mark = node('div', (i <= furthestIdx ? 'ppl-item is-reached' : 'ppl-item') + (mobileKeys.has(m.key) ? ' is-mobile-key' : ''));
           mark.style.left = m.at + '%';
-          mark.append(node('b', '', m.at + '%'), node('span', 'ppl-dot'), node('span', 'ppl-label', m.label));
+          mark.dataset.milestoneKey = m.key;
+          mark.append(node('b', 'ppl-percent', m.at + '%'), node('span', 'ppl-dot'), node('span', 'ppl-label', m.label));
           return mark;
         }));
       }
 
-      // Avatars
       if (avatarBox) {
-        const privateRepositories = Array.isArray(dashboardData?.privateRepositories) ? dashboardData.privateRepositories : [];
-        renderPortProgressAvatars(avatarBox, ranked, progress.leaderId, [...(dashboardData?.projects || []), ...privateRepositories]);
+        const publicProjects = Array.isArray(dashboardData?.projects) ? dashboardData.projects : [];
+        const privateProjects = Array.isArray(dashboardData?.privateRepositories) ? dashboardData.privateRepositories : [];
+        renderPortProgressAvatars(avatarBox, ranked, progress.leaderId, publicProjects,
+          dashboardData?.communityBuild ? [dashboardData.communityBuild, ...privateProjects] : privateProjects);
       }
     }
 
@@ -938,16 +989,18 @@ if (typeof module === 'object' && module.exports) {
     }
   }
 
-  function renderPortProgressAvatars(box, ranked, leaderId, allProjects) {
+  function renderPortProgressAvatars(box, ranked, leaderId, publicProjects, privateProjects) {
     const W = box.clientWidth || box.offsetWidth || 600;
     if (!W) return;
-    const GAP = 44;
+    const GAP = W < 420 ? 34 : 48;
     const top6 = ranked.slice(0, 6);
-    const projectMap = new Map((allProjects || []).map(p => [p.id, p]));
+    const allProjects = [...publicProjects, ...privateProjects];
+    const projectMap = new Map(allProjects.map(p => [p.id, p]));
     const items = top6.map(r => ({
-      r, project: projectMap.get(r.id),
+      r,
+      project: projectMap.get(r.id),
       x: (r.score / 100) * W,
-    })).sort((a, b) => a.x - b.x);
+    })).filter(it => it.project && (typeof it.project.repo === 'string' && it.project.repo.trim() || it.project.id === 'community-build' || /^private-repo-[a-z0-9-]+$/i.test(String(it.project.id || '')))).sort((a, b) => a.x - b.x);
     // Spread avatars to avoid overlap
     items.forEach((it, i) => { it.a = i ? Math.max(it.x, items[i - 1].a + GAP) : it.x; });
     const shift = items.length ? items.reduce((s, it) => s + (it.x - it.a), 0) / items.length : 0;
@@ -987,9 +1040,27 @@ if (typeof module === 'object' && module.exports) {
       const isLead = it.r.id === leaderId;
       const p = it.project;
       const name = p?.title || (p?.repo ? p.repo.split('/').pop() : it.r.id || '?');
-      const avatar = document.createElement('span');
-      avatar.className = 'pp-avatar' + (isLead ? ' is-leader' : '');
+      const avatar = document.createElement('button');
+      avatar.type = 'button';
+      avatar.className = 'pp-pin' + (isLead ? ' is-leader' : '');
+      avatar.dataset.pinTarget = p.id === 'community-build' ? 'community-build' : (p.id && /^private-repo-/.test(p.id) ? p.id : p.repo);
+      avatar.setAttribute('aria-label', `${name}，移植进度 ${it.r.score.toFixed(1)}%，跳转到工程档案`);
       avatar.style.cssText = `position:absolute;left:${it.a}px;bottom:${H - avatarY - 32}px;transform:translateX(-50%)`;
+      avatar.addEventListener('click', () => {
+        const handled = p.id === 'community-build'
+          ? typeof window.focusCommunityBuild === 'function' && window.focusCommunityBuild()
+          : /^private-repo-/.test(String(p.id || ''))
+            ? typeof window.focusPrivateRepository === 'function' && window.focusPrivateRepository(p.id)
+          : typeof window.focusProjectArchive === 'function' && window.focusProjectArchive(p.repo);
+        if (!handled) {
+          const anchor = document.getElementById(p.id === 'community-build' || /^private-repo-/.test(String(p.id || '')) ? p.id : projectAnchorId(p.repo));
+          anchor?.scrollIntoView({ block: 'start', behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
+        }
+      });
+      const art = document.createElement('span');
+      art.className = 'pp-pin-art';
+      art.setAttribute('aria-hidden', 'true');
+      avatar.append(art);
       if (isLead) {
         const lbl = document.createElement('span');
         lbl.className = 'pp-avatar-label';
@@ -1000,10 +1071,24 @@ if (typeof module === 'object' && module.exports) {
       initial.className = 'pp-avatar-fb';
       initial.setAttribute('aria-hidden', 'true');
       initial.textContent = (name || '?').slice(0, 2);
-      avatar.append(initial);
+      art.append(initial);
       box.append(avatar);
     }
   }
+
+  function projectAnchorId(repo) {
+    const value = typeof repo === 'string' ? repo.trim().toLowerCase() : '';
+    const slug = value.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    return slug ? `project-${slug}` : '';
+  }
+
+  function progressArchiveHref(dashboardData, leaderId) {
+    if (leaderId === 'community-build') return '#community-build';
+    if (typeof leaderId === 'string' && /^private-repo-[a-z0-9-]+$/i.test(leaderId)) return '#' + leaderId;
+    const project = Array.isArray(dashboardData?.projects) ? dashboardData.projects.find(item => item?.id === leaderId) : null;
+    return project?.repo ? '#' + projectAnchorId(project.repo) : '#dashboard';
+  }
+
   // ---- end port progress renderer ----
 
   // expose renderPortProgress for app.js to call after dashboard fetch

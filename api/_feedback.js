@@ -14,6 +14,7 @@ const ADMIN_NOTICES = '/api/admin/site-notices';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const CLIENT_ID = /^[0-9a-f]{64}$/;
 const MAX_TEXT = 1000;
+const MAX_POPUP_TITLE = 80;
 const MAX_LINK_LABEL = 80;
 const MAX_LINK_URL = 2048;
 const LINK_ORIGIN = 'http://127.0.0.1';
@@ -71,6 +72,12 @@ function storedText(value, allowEmpty = false) {
     !value.includes('\0') && validUnicode(value) && Array.from(value).length <= MAX_TEXT;
 }
 
+function cleanPopupTitle(value) {
+  const title = cleanText(value, { allowEmpty: true, label: '弹窗标题', max: MAX_POPUP_TITLE });
+  if (/[\r\n\u2028\u2029]/.test(title)) throw new FeedbackError(400, '弹窗标题须写在同一行');
+  return title;
+}
+
 function cleanHeaderLink(value, header) {
   if (value == null) return null;
   if (!header || !isObject(value)) throw new FeedbackError(400, '请为页头公告填写链接地址和显示文字');
@@ -119,7 +126,8 @@ function normalizeStore(value) {
     if (!isObject(value.notices.popup) || !isUuid(value.notices.popup.id) || !storedText(value.notices.popup.text)) {
       throw new Error('Invalid popup notice');
     }
-    popup = { id: value.notices.popup.id, text: value.notices.popup.text };
+    const title = Object.hasOwn(value.notices.popup, 'title') ? cleanPopupTitle(value.notices.popup.title) : '';
+    popup = { id: value.notices.popup.id, text: value.notices.popup.text, ...(title && { title }) };
   }
   const header = value.notices.header;
   const headerLink = cleanHeaderLink(value.notices.headerLink, header);
@@ -137,6 +145,12 @@ function cloneStore(store) {
 function noticesView(store) {
   const { header, popup, headerLink } = store.notices;
   return { header, popup: popup ? { ...popup } : null, ...(headerLink && { headerLink: { ...headerLink } }) };
+}
+
+function noticesResponse(store) {
+  const payload = noticesView(store);
+  const etag = `"${createHash('sha256').update(JSON.stringify(payload)).digest('hex')}"`;
+  return { payload, headers: { ETag: etag } };
 }
 
 function feedbackView(item) {
@@ -435,23 +449,42 @@ function createFeedback({ filePath, now = Date.now, readJson, sendJson } = {}) {
     }
 
     if (pathname === ADMIN_NOTICES) {
-      if (req.method === 'GET') return dispatch(res, commonHeaders, async () => ({ payload: noticesView(await snapshot()) }));
+      if (req.method === 'GET') return dispatch(res, commonHeaders, async () => noticesResponse(await snapshot()));
       if (req.method !== 'PUT') return methodNotAllowed(res, commonHeaders, 'GET, PUT');
       return dispatch(res, commonHeaders, async () => {
         const body = await readJson(req, MAX_BODY_BYTES);
-        if (!isObject(body) || typeof body.header !== 'string' || typeof body.popup !== 'string') {
+        const titleOnly = isObject(body) && Object.keys(body).length === 1 && Object.hasOwn(body, 'popupTitle');
+        if (!titleOnly && (!isObject(body) || typeof body.header !== 'string' || typeof body.popup !== 'string')) {
           throw new FeedbackError(400, '请提供 header 和 popup 文本');
         }
-        const header = cleanText(body.header, { allowEmpty: true, label: '公告栏' });
-        const popupText = cleanText(body.popup, { allowEmpty: true, label: '弹窗公告' });
-        const headerLink = cleanHeaderLink(body.headerLink, header);
-        const notices = await serializeUpdate(next => {
+        const header = titleOnly ? undefined : cleanText(body.header, { allowEmpty: true, label: '公告栏' });
+        const popupText = titleOnly ? undefined : cleanText(body.popup, { allowEmpty: true, label: '弹窗公告' });
+        const titleInput = Object.hasOwn(body, 'popupTitle') ? cleanPopupTitle(body.popupTitle) : undefined;
+        const ifMatch = req.headers?.['if-match'];
+        if (titleOnly && ifMatch === undefined) throw new FeedbackError(428, '请先读取公告版本，再保存弹窗标题。');
+        if (!titleOnly && titleInput && !popupText) throw new FeedbackError(400, '请填写弹窗正文，或清空弹窗标题');
+        const hasLink = Object.hasOwn(body, 'headerLink');
+        const proposedLink = cleanHeaderLink(body.headerLink, header);
+        return serializeUpdate(next => {
+          const current = noticesResponse(next);
+          if (ifMatch !== undefined && ifMatch !== current.headers.ETag) {
+            throw new FeedbackError(412, '公告已被其他编辑者修改，请重新读取后核对再保存。');
+          }
           const previous = next.notices.popup;
-          const popup = popupText ? (previous?.text === popupText ? previous : { id: randomUUID(), text: popupText }) : null;
+          if (titleOnly) {
+            if (!previous) throw new FeedbackError(409, '目前没有可补标题的弹窗。');
+            const { id, text } = previous;
+            next.notices.popup = { id, text, ...(titleInput && { title: titleInput }) };
+            return noticesResponse(next);
+          }
+          const sameText = previous?.text === popupText;
+          const title = titleInput ?? (sameText ? previous.title ?? '' : '');
+          const popup = popupText ? { id: sameText ? previous.id : randomUUID(), text: popupText, ...(title && { title }) } : null;
+          // Keep the old replacement contract for clients that do not send If-Match.
+          const headerLink = ifMatch !== undefined && !hasLink && header ? next.notices.headerLink : proposedLink;
           next.notices = { header, popup, ...(headerLink && { headerLink }) };
-          return noticesView(next);
+          return noticesResponse(next);
         });
-        return { payload: notices };
       });
     }
 

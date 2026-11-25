@@ -26,6 +26,7 @@
   const intro = byId('editorial-intro');
 
   let draft = null;
+  let savedContent = null;
   let baseline = '';
   let etag = '';
   let section = 'home';
@@ -33,12 +34,15 @@
   let pending = '';
   let stale = false;
   let projectQuery = '';
-  const avatarJobs = new Map();
+  let savedPrivateIds = new Set();
 
   const format = (content) => JSON.stringify(content, null, 2);
   const draftText = () => mode === 'json' ? raw.value : format(draft);
   const isDirty = () => draft !== null && draftText() !== baseline;
   const text = (value) => typeof value === 'string' || typeof value === 'number' ? String(value) : '';
+  const isRecord = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+  const MAX_PRIVATE_REPOSITORIES = 160;
+  const PRIVATE_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
   function element(tag, className, value) {
     const node = document.createElement(tag);
@@ -63,9 +67,9 @@
     const dirty = isDirty();
     const busy = pending !== '';
     workspace.inert = busy;
-    reload.disabled = busy || avatarJobs.size > 0;
+    reload.disabled = busy;
     logout.disabled = busy;
-    save.disabled = busy || avatarJobs.size > 0 || !dirty || stale;
+    save.disabled = busy || !dirty || stale;
     formMode.disabled = jsonMode.disabled = busy || !draft;
     conflict.hidden = !stale;
 
@@ -103,6 +107,9 @@
     for (const [name, items] of lists) {
       if (!Array.isArray(items) || !items.every(object)) throw new Error(`${name} 必须是对象列表。`);
     }
+    if (Object.keys(content.community).length !== 1 || content.community.groups.length !== 0) {
+      throw new Error('community.groups 必须为空列表。');
+    }
     return content;
   }
 
@@ -110,17 +117,17 @@
     planned: '计划中', unknown: '待核实', reported: '项目方自述', completed: '已核实', blocked: '受阻',
   };
 
-  async function request(method, content) {
+  async function request(method, { part, content, version } = {}) {
     const headers = new Headers({ Accept: 'application/json' });
     const options = { method, headers, mode: 'same-origin', credentials: 'same-origin', cache: 'no-store', redirect: 'error' };
     if (method === 'PUT') {
       headers.set('Content-Type', 'application/json');
-      headers.set('If-Match', etag);
+      headers.set('If-Match', version);
       options.body = JSON.stringify(content);
     }
     let response;
     try {
-      response = await fetch(endpoint, options);
+      response = await fetch(part ? `${endpoint}/${part}` : endpoint, options);
     } catch {
       throw new Error('无法连接本机内容服务，请检查服务是否运行后重试。');
     }
@@ -132,24 +139,29 @@
       error.details = Array.isArray(body?.details) ? body.details.filter((detail) => typeof detail === 'string') : [];
       throw error;
     }
-    const version = response.headers.get('ETag');
-    if (!version) throw new Error('响应缺少 ETag，无法确认内容版本。');
-    return { content: assertShape(body?.content), version };
+    const responseVersion = response.headers.get('ETag');
+    if (!responseVersion) throw new Error('响应缺少 ETag，无法确认内容版本。');
+    const result = body?.content;
+    if (part === 'roadmap' ? !isRecord(result) : part === 'projects' && (!Array.isArray(result) || !result.every(isRecord))) {
+      throw new Error('服务器返回的分区内容格式有误。');
+    }
+    return { content: part ? result : assertShape(result), version: responseVersion };
   }
 
-  function reportError(error, action) {
+  function reportError(error, action, savedParts = []) {
+    const prefix = savedParts.length ? `${savedParts.join('、')}已保存。` : '';
     if (error.status === 412) {
       stale = true;
-      setStatus('conflict', '保存被拒绝（412）：这份草稿基于旧版本。', error.details);
+      setStatus('conflict', `${prefix}${action}遇到版本冲突。草稿已保留。`, error.details);
     } else if (error.status === 401) {
-      setStatus('error', '登录状态已失效，正在前往登录页。');
+      setStatus('error', `${prefix}登录状态已失效，正在前往登录页。`);
       window.location.replace('/admin/login');
     } else if (error.status === 429) {
       const seconds = Number(error.retryAfter);
       const wait = Number.isFinite(seconds) && seconds > 0 ? `请在约 ${Math.ceil(seconds)} 秒后重试。` : '请稍后重试。';
-      setStatus('error', `尝试次数过多，${wait}`);
+      setStatus('error', `${prefix}尝试次数过多，${wait}`);
     } else {
-      setStatus('error', `${action}失败：${error.message}`, error.details);
+      setStatus('error', `${prefix}${action}失败：${error.message}`, error.details);
     }
   }
 
@@ -161,7 +173,7 @@
 
   function readRaw() {
     try {
-      const parsed = assertShape(JSON.parse(raw.value));
+      const parsed = canonicalizePrivateRepositories(assertShape(JSON.parse(raw.value)), draft.roadmap.privateRepositories);
       clearJsonError();
       return parsed;
     } catch (error) {
@@ -174,7 +186,6 @@
   }
 
   function showMode(next) {
-    if (next === 'json') avatarJobs.clear();
     mode = next;
     form.hidden = form.inert = next !== 'form';
     jsonView.hidden = jsonView.inert = next !== 'json';
@@ -195,9 +206,17 @@
     updateControls();
   }
 
+  function updateBaseline() {
+    const savedDraft = canonicalizePrivateRepositories(structuredClone(savedContent));
+    baseline = format(savedDraft);
+    const privateRepositories = savedDraft.roadmap.privateRepositories;
+    savedPrivateIds = new Set(Array.isArray(privateRepositories) ? privateRepositories.map(item => item?.id) : []);
+    return savedDraft;
+  }
+
   function accept({ content, version }) {
-    baseline = format(content);
-    draft = content;
+    savedContent = content;
+    draft = updateBaseline();
     etag = version;
     stale = false;
     raw.value = baseline;
@@ -224,7 +243,7 @@
   }
 
   async function loadContent() {
-    if (pending || avatarJobs.size) return;
+    if (pending) return;
     const backup = stale && isDirty() ? draftText() : null;
     if (backup === null && isDirty() && !window.confirm('重新读取会放弃本页未保存的修改。继续吗？')) return;
     pending = '正在读取';
@@ -249,23 +268,64 @@
     }
   }
 
+  async function savePartition(part) {
+    // 分区接口各自读取 ETag。服务器当前共用版本号，前一分区保存后要重新读取后一分区。
+    const current = await request('GET', { part });
+    if (format(current.content) !== format(savedContent[part])) {
+      const error = new Error('服务器分区内容已更新。');
+      error.status = 412;
+      throw error;
+    }
+    const next = await request('PUT', { part, content: draft[part], version: current.version });
+    savedContent[part] = next.content;
+    draft[part] = updateBaseline()[part];
+    // 只有服务器此前与完整快照一致时，才能推进全文 ETag。
+    if (etag === current.version) etag = next.version;
+  }
+
   async function saveContent() {
-    if (!draft || pending || avatarJobs.size || stale || !isDirty()) return;
-    const content = mode === 'json' ? readRaw() : draft;
+    if (!draft || pending || stale || !isDirty()) return;
+    const content = mode === 'json' ? readRaw() : canonicalizePrivateRepositories(draft);
     if (!content) return;
+    const repositoryErrors = validatePrivateRepositories(content.roadmap);
+    if (repositoryErrors.length) {
+      setStatus('error', '请先修正私有仓库资料，草稿已保留。', repositoryErrors);
+      return;
+    }
+    const { roadmap, projects, ...other } = content;
+    const { roadmap: savedRoadmap, projects: savedProjects, ...savedOther } = JSON.parse(baseline);
+    const partitions = [];
+    if (format(roadmap) !== format(savedRoadmap)) partitions.push(['roadmap', '移植路线']);
+    if (format(projects) !== format(savedProjects)) partitions.push(['projects', '公开仓库']);
+    const saveOther = format(other) !== format(savedOther);
+
+    draft = content;
     pending = '正在保存';
     updateControls();
-    setStatus('neutral', '正在保存全部内容…');
-    let focusTarget;
+    setStatus('neutral', '正在保存内容…');
+    const savedParts = [];
+    let action = '保存内容';
+    let acceptedFull = false;
     try {
-      accept(await request('PUT', content));
+      for (const [part, label] of partitions) {
+        action = `保存「${label}」`;
+        await savePartition(part);
+        savedParts.push(label);
+      }
+      if (saveOther) {
+        action = '保存其他内容';
+        // 全文保存仅应用其余字段，保留两个分区的服务器版本和兼容字段。
+        accept(await request('PUT', { content: { ...draft, roadmap: savedContent.roadmap, projects: savedContent.projects }, version: etag }));
+        acceptedFull = true;
+      } else raw.value = format(draft);
       setStatus('success', '全部内容已保存。');
     } catch (error) {
-      focusTarget = reportError(error, '保存');
+      if (savedParts.length) raw.value = format(draft);
+      reportError(error, action, savedParts);
     } finally {
+      if (!acceptedFull && savedParts.length && mode === 'form') renderSection();
       pending = '';
       updateControls();
-      focusTarget?.focus();
     }
   }
 
@@ -275,7 +335,7 @@
     const grid = element('div', 'field-grid');
     for (const [key, name, options = {}] of definitions) {
       const { kind = 'text', hint, placeholder, wide, optional, choices, maxLength, defaultChecked = false,
-        valueType, min, max, step } = options;
+        valueType, min, max, step, readOnly } = options;
       const wrapper = element('div', `field${wide ? ' field-wide' : ''}${kind === 'check' ? ' field-check' : ''}`);
       const id = `field-${++fieldId}`;
       const label = element('label', '', name);
@@ -298,6 +358,7 @@
         if (multiline) input.rows = kind === 'tags' ? 2 : 3;
         else input.type = valueType === 'number' ? 'number' : kind === 'date' ? 'date' : 'text';
         if (maxLength !== undefined) input.maxLength = maxLength;
+        if (readOnly) input.readOnly = true;
         if (valueType === 'number') {
           if (min !== undefined) input.min = min;
           if (max !== undefined) input.max = max;
@@ -311,6 +372,7 @@
         input.value = kind === 'tags' && Array.isArray(record[key]) ? record[key].join('\n') : text(record[key]);
       }
       input.addEventListener(choices || kind === 'check' || kind === 'date' ? 'change' : 'input', () => {
+        if (readOnly) return;
         if (kind === 'check') record[key] = input.checked;
         else if (valueType === 'number') {
           if (input.value === '') delete record[key];
@@ -442,7 +504,7 @@
     let search;
     if (config.search) {
       const searchBox = element('div', 'field search-box');
-      const searchLabel = element('label', '', '搜索工程档案');
+      const searchLabel = element('label', '', '搜索公开仓库');
       searchLabel.htmlFor = 'project-search';
       search = element('input');
       search.type = 'search';
@@ -505,7 +567,8 @@
           refreshLabel();
           config.onChange?.();
         };
-        body.append(fields(item, config.fields, onEdit));
+        const definitions = typeof config.fields === 'function' ? config.fields(item) : config.fields;
+        body.append(fields(item, definitions, onEdit));
         if (config.buildExtra) body.append(config.buildExtra(item, onEdit));
         if (config.extra) {
           const extra = element('details', 'extra');
@@ -553,7 +616,7 @@
 
       function expand() {
         node.open = true;
-        hydrate().querySelector('input, textarea, select')?.focus();
+        hydrate().querySelector('input:not([readonly]), textarea:not([readonly]), select')?.focus();
       }
       node.addEventListener('toggle', () => { if (node.open) hydrate(); });
       return card;
@@ -659,131 +722,6 @@
     });
     return editor;
   }
-
-  const avatarSize = 128;
-  const avatarByteLimit = 24 * 1024;
-  const avatarFileLimit = 8 * 1024 * 1024;
-  const avatarPrefix = 'data:image/webp;base64,';
-
-  async function prepareGroupAvatar(file) {
-    if (!file.size) throw new Error('图片文件是空的，请重新选择。');
-    if (file.size > avatarFileLimit) throw new Error('图片超过 8 MB，请选择小一些的文件。');
-    const header = new Uint8Array(await file.slice(0, 12).arrayBuffer());
-    const png = [137, 80, 78, 71, 13, 10, 26, 10].every((byte, index) => header[index] === byte);
-    const jpeg = header[0] === 255 && header[1] === 216 && header[2] === 255;
-    const webp = String.fromCharCode(...header.slice(0, 4)) === 'RIFF' && String.fromCharCode(...header.slice(8)) === 'WEBP';
-    if (!png && !jpeg && !webp) throw new Error('请选择 JPG、PNG 或 WebP 图片。');
-
-    if (typeof createImageBitmap !== 'function') throw new Error('当前浏览器无法处理图片，请试试新版 Chrome 或 Edge。');
-    let bitmap;
-    try {
-      bitmap = await createImageBitmap(file);
-    } catch {
-      throw new Error('打不开这张图片，请换一张再试。');
-    }
-    const canvas = element('canvas');
-    try {
-      const scale = Math.min(1, avatarSize / Math.max(bitmap.width, bitmap.height));
-      canvas.width = Math.max(1, Math.round(bitmap.width * scale));
-      canvas.height = Math.max(1, Math.round(bitmap.height * scale));
-      const context = canvas.getContext('2d');
-      if (!context) throw new Error('当前浏览器无法处理图片，请试试新版 Chrome 或 Edge。');
-      context.imageSmoothingQuality = 'high';
-      context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-    } finally {
-      bitmap.close();
-    }
-    for (const quality of [0.86, 0.7, 0.5, 0.3, 0.18]) {
-      const data = canvas.toDataURL('image/webp', quality);
-      if (!data.startsWith(avatarPrefix)) throw new Error('当前浏览器无法生成 WebP 图片，请试试新版 Chrome 或 Edge。');
-      if (atob(data.slice(avatarPrefix.length)).length <= avatarByteLimit) return data;
-    }
-    throw new Error('压缩后仍超过 24 KiB，请换一张图片。');
-  }
-
-  function groupAvatarEditor(group, onEdit) {
-    const panel = element('div', 'group-avatar-editor');
-    const preview = element('div', 'group-avatar-preview');
-    const image = element('img', 'group-avatar-image');
-    image.alt = '';
-    image.width = image.height = 42;
-    const current = element('span', 'hint');
-    preview.append(image, current);
-    const upload = element('div', 'field group-avatar-upload');
-    const input = element('input');
-    input.id = `field-${++fieldId}`;
-    input.type = 'file';
-    input.accept = 'image/jpeg,image/png,image/webp';
-    const label = element('label', '', '上传群头像');
-    label.htmlFor = input.id;
-    const hint = element('p', 'hint', '支持 JPG、PNG、WebP，原图不超过 8 MB。上传后自动缩小，保存后生效。');
-    hint.id = `${input.id}-help`;
-    const message = element('p', 'group-avatar-message');
-    message.id = `${input.id}-status`;
-    message.setAttribute('role', 'status');
-    message.hidden = true;
-    input.setAttribute('aria-describedby', `${hint.id} ${message.id}`);
-    upload.append(label, input, hint, message);
-    const reset = button('恢复自动头像');
-    panel.append(preview, upload, reset);
-
-    function refresh() {
-      const custom = typeof group.avatar === 'string' && /^data:image\/webp;base64,[A-Za-z0-9+/]+={0,2}$/.test(group.avatar);
-      image.hidden = !custom;
-      if (custom && image.getAttribute('src') !== group.avatar) image.src = group.avatar;
-      if (!custom) image.removeAttribute('src');
-      current.textContent = custom ? '自定义头像预览' : '前台按群号自动获取头像';
-      reset.disabled = !Object.hasOwn(group, 'avatar') && !avatarJobs.has(group);
-    }
-
-    function tell(tone, value) {
-      message.dataset.tone = tone;
-      message.textContent = value;
-      message.hidden = false;
-    }
-
-    input.addEventListener('change', async () => {
-      const file = input.files[0];
-      if (!file) return;
-      input.value = '';
-      const job = {};
-      avatarJobs.set(group, job);
-      const isCurrent = () => avatarJobs.get(group) === job && panel.isConnected && draft?.community.groups.includes(group);
-      tell('neutral', '正在处理图片…');
-      refresh();
-      updateControls();
-      try {
-        const result = await prepareGroupAvatar(file);
-        if (!isCurrent()) return;
-        group.avatar = result;
-        onEdit?.();
-        tell('success', '已更新草稿头像，请保存全部。');
-      } catch (error) {
-        if (isCurrent()) tell('error', error.message || '处理图片失败，请换一张再试。');
-      } finally {
-        if (avatarJobs.get(group) === job) {
-          avatarJobs.delete(group);
-          refresh();
-          updateControls();
-        }
-      }
-    });
-
-    reset.addEventListener('click', () => {
-      avatarJobs.delete(group);
-      const removed = Object.hasOwn(group, 'avatar');
-      delete group.avatar;
-      tell('neutral', removed ? '草稿已恢复自动头像，请保存全部。' : '已取消图片处理。');
-      refresh();
-      onEdit?.();
-      updateControls();
-      input.focus({ preventScroll: true });
-    });
-
-    refresh();
-    return panel;
-  }
-
 
   const projectTypes = { runner: '运行器 / 兼容层', tool: '工具层', resource: '配套资源', adjacent: '其他代际（参考）' };
   const projectStatuses = { progress: '活跃开发中', early: '早期 / 停滞', tool: '工具（不运行游戏）', reference: '资料 / 参考' };
@@ -961,64 +899,102 @@
     return group;
   }
 
-  function communityBuildEditor(route) {
-    const group = element('details', 'extra port-progress');
-    const summary = element('summary', '', 'CGBJ 社区构建 · 不计入仓库排名');
-    const content = element('div', 'section-content');
-    group.append(summary, content);
-
-    function render() {
-      content.replaceChildren();
-      if (!Object.hasOwn(route, 'communityBuild')) {
-        const add = button('添加社区构建');
-        add.addEventListener('click', () => {
-          route.communityBuild = { title: '', summary: '', sourceLabel: '', sourceUrl: '', portProgress: {} }; 
-          group.open = true;
-          updateControls();
-          render();
-          content.querySelector('input')?.focus();
-        });
-        content.append(add);
-        return;
+  function canonicalizePrivateRepositories(content, draftEntries) {
+    const route = content.roadmap;
+    if (!Object.hasOwn(route, 'privateRepositories')) {
+      const legacy = route.communityBuild;
+      if (Array.isArray(draftEntries)) {
+        // Omitting the list while editing another field is not a request to clear it.
+        route.privateRepositories = draftEntries;
+      } else if (isRecord(legacy)) {
+        const { title, summary, sourceLabel, sourceUrl, portProgress } = legacy;
+        const id = 'legacy';
+        route.privateRepositories = [{ id, title, summary, sourceLabel, sourceUrl, portProgress }];
       }
-
-      const progress = route.communityBuild;
-      const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
-      if (!isObject(progress)) {
-        content.append(element('p', 'field-error', '社区构建格式不符，未修改数据。请在 JSON 模式检查 roadmap.communityBuild。'));
-        return;
-      }
-
-      content.append(fields(progress, [
-        ['title', '项目标题', { wide: true, maxLength: 120 }],
-        ['summary', '项目简介', { kind: 'area', wide: true, maxLength: 800 }],
-        ['sourceLabel', '评分来源名称', { maxLength: 80 }],
-        ['sourceUrl', '评分来源链接', { kind: 'url', wide: true, maxLength: 2048, placeholder: 'https://…' }],
-      ]));
-
-      const actions = element('div', 'entry-actions');
-      const remove = button('移除社区构建', 'button danger');
-      remove.addEventListener('click', () => {
-        if (!window.confirm('移除 CGBJ 社区构建？保存后会删除该评分记录。')) return;
-        delete route.communityBuild;
-        updateControls();
-        render();
-        content.querySelector('button')?.focus();
-      });
-      actions.append(remove);
-      content.append(portProgressEditor(progress, updateControls), actions);
     }
-
-    render();
-    return group;
+    if (Array.isArray(route.privateRepositories)) delete route.communityBuild;
+    return content;
   }
 
-  function portProgressEditor(project, onEdit) {
+  const privateRepositoryTextFields = [
+    ['title', '公开标题', { maxLength: 120 }],
+    ['summary', '项目简介', { kind: 'area', wide: true, maxLength: 800 }],
+    ['sourceLabel', '公开依据名称', { maxLength: 80 }],
+  ];
+
+  function validatePrivateRepositories(route) {
+    if (!Object.hasOwn(route, 'privateRepositories')) return [];
+    const entries = route.privateRepositories;
+    if (!Array.isArray(entries) || entries.length > MAX_PRIVATE_REPOSITORIES) {
+      return [`私有仓库需要 0–${MAX_PRIVATE_REPOSITORIES} 条记录。`];
+    }
+    const errors = [];
+    const ids = new Set();
+    entries.forEach((item, index) => {
+      const label = `私有仓库第 ${index + 1} 条`;
+      if (!isRecord(item)) { errors.push(`${label}必须是对象。`); return; }
+      const { id, sourceUrl } = item;
+      if (typeof id !== 'string' || id.length > 48 || id.trim() !== id || !PRIVATE_ID.test(id)) {
+        errors.push(`${label}：标识必须是 1–48 位小写字母、数字或分隔用的短横线。`);
+      } else if (ids.has(id)) errors.push(`${label}：标识「${id}」重复。`);
+      else ids.add(id);
+      for (const [key, name, { maxLength }] of privateRepositoryTextFields) {
+        const value = item[key];
+        if (typeof value !== 'string' || !value.trim() || value.length > maxLength || value.includes('\0')) {
+          errors.push(`${label}：${name}需要 1–${maxLength} 个字符。`);
+        }
+      }
+      let evidence;
+      if (typeof sourceUrl === 'string' && sourceUrl.length <= 2048 && /^https:\/\/[^/?#]/i.test(sourceUrl) &&
+          !/[\u0000-\u0020\u007f\\]/.test(sourceUrl)) {
+        try { evidence = new URL(sourceUrl); } catch { /* Invalid URL. */ }
+      }
+      if (!evidence?.hostname || evidence.protocol !== 'https:' || evidence.username || evidence.password) {
+        errors.push(`${label}：请填写不带登录凭据的公开 HTTPS 依据链接。`);
+      }
+      if (!isRecord(item.portProgress)) errors.push(`${label}：缺少移植评分记录。`);
+    });
+    return errors;
+  }
+
+  function privateRepositoriesEditor(route) {
+    const entries = route.privateRepositories ?? [];
+    if ((Object.hasOwn(route, 'privateRepositories') && !Array.isArray(route.privateRepositories)) || !entries.every(isRecord)) {
+      const group = element('div', 'list-group');
+      const header = element('div', 'list-header');
+      header.append(element('h3', '', '私有仓库'));
+      group.append(header,
+        element('p', 'field-error', '私有仓库列表格式不符，数据已保留。请在原始 JSON 中检查 roadmap.privateRepositories。'));
+      return group;
+    }
+    return list(entries, {
+      label: '私有仓库', noun: '私有仓库', maximum: MAX_PRIVATE_REPOSITORIES,
+      fields: item => {
+        const readOnly = savedPrivateIds.has(item.id) && entries.find(entry => entry.id === item.id) === item;
+        return [
+          ['id', '稳定标识', { kind: 'literal', maxLength: 48, readOnly, placeholder: '例如 sample-launch',
+            hint: readOnly ? undefined : '小写字母、数字与短横线。保存后固定。' }],
+          ...privateRepositoryTextFields,
+          ['sourceUrl', '公开 HTTPS 依据', { ...link, maxLength: 2048, placeholder: 'https://…',
+            hint: '只填无需登录即可查看的证据，不填私有仓库地址。' }],
+        ];
+      },
+      blank: () => ({ id: '', title: '', summary: '', sourceLabel: '', sourceUrl: '', portProgress: {} }),
+      meta: item => text(item.id),
+      onChange: () => { route.privateRepositories = entries; },
+      buildExtra: item => {
+        const progress = element('details', 'private-repository-progress');
+        const summary = '移植评分';
+        progress.append(element('summary', '', summary), portProgressEditor(item, undefined, { required: true }));
+        return progress;
+      },
+    });
+  }
+
+  function portProgressEditor(project, onEdit, { required = false } = {}) {
     const ppVerifications = { verified: '已独立复测', 'self-reported': '项目方自述', unverified: '待核实' };
     const ppStabilities = { unknown: '未知', constant: '频繁崩溃', often: '经常崩溃', sometimes: '偶尔崩溃', rarely: '很少崩溃', stable: '稳定' };
-    const isObj = v => v !== null && typeof v === 'object' && !Array.isArray(v);
-
-    const group = element('div', 'extra port-progress');
+    const group = element('div', required ? 'port-progress' : 'extra port-progress');
     const id = 'field-' + ++fieldId;
     const toggleField = element('div', 'field field-check');
     const toggle = element('input');
@@ -1028,30 +1004,42 @@
     const label = element('label', '', '移植进度评分（portProgress）');
     label.htmlFor = id;
     toggleField.append(toggle, label);
-    group.append(toggleField, element('p', 'hint', '填写基础准备各项进度、GTA VI 运行状态和评估信息。评分由系统计算，不需要手填。'));
+    if (!required) group.append(toggleField, element('p', 'hint', '填写基础准备各项进度、GTA VI 运行状态和评估信息。评分由系统计算，不需要手填。'));
 
-    let pp = isObj(project.portProgress) ? project.portProgress : null;
+    let pp = isRecord(project.portProgress) ? project.portProgress : null;
     toggle.checked = Boolean(pp);
 
     let panel;
     const mount = () => {
-      pp = pp || {};
-      pp.groundwork = isObj(pp.groundwork) ? pp.groundwork : {};
-      pp.gta = isObj(pp.gta) ? pp.gta : {};
-      project.portProgress = pp;
+      pp ??= {};
+      const groundwork = isRecord(pp.groundwork) ? pp.groundwork : {};
+      const gta = isRecord(pp.gta) ? pp.gta : {};
+      const edited = () => {
+        project.portProgress = pp;
+        onEdit?.();
+        updateControls();
+      };
 
-      panel = element('div', 'field-grid section-content');
+      panel = element('div', 'section-content');
       panel.id = id + '-fields';
 
       // groundwork sub-fields
-      const gwHead = element('p', 'hint field-wide', '基础准备（各项 0–1，系统会自动加权计算前 25 分）');
+      const gwHead = element('p', 'hint', '基础准备（各项 0–1，系统自动加权）');
       panel.append(gwHead);
-      panel.append(fields(pp.groundwork, [
+      panel.append(fields(groundwork, [
         ['loader',   '加载器与系统库',   { kind: 'number', maxLength: 4, placeholder: '0–1', hint: '权重 0.20' }],
         ['shaders',  '着色器翻译',       { kind: 'number', maxLength: 4, placeholder: '0–1', hint: '权重 0.28' }],
         ['graphics', '图形层',           { kind: 'number', maxLength: 4, placeholder: '0–1', hint: '权重 0.32' }],
         ['proven',   '其他游戏已验证',   { kind: 'number', maxLength: 4, placeholder: '0–1', hint: '权重 0.20' }],
-      ], () => { for (const k of ['loader','shaders','graphics','proven']) { const v=parseFloat(pp.groundwork[k]); pp.groundwork[k]=Number.isFinite(v)?Math.min(1,Math.max(0,v)):undefined; if(pp.groundwork[k]===undefined)delete pp.groundwork[k]; } onEdit?.(); updateControls(); }));
+      ], () => {
+        for (const key of ['loader', 'shaders', 'graphics', 'proven']) {
+          const value = parseFloat(groundwork[key]);
+          if (Number.isFinite(value)) groundwork[key] = Math.min(1, Math.max(0, value));
+          else delete groundwork[key];
+        }
+        pp.groundwork = groundwork;
+        edited();
+      }));
 
       // gta ladder
       const gtaHead = element('p', 'hint field-wide', 'GTA VI 运行进度（0 未达到，小数表示部分达到，1 达到）');
@@ -1069,30 +1057,41 @@
         input.min = '0'; input.max = '1'; input.step = 'any';
         input.placeholder = '0–1';
         input.setAttribute('aria-describedby', gtaHead.id);
-        input.value = text(pp.gta[k]);
+        input.value = typeof gta[k] === 'boolean' ? String(Number(gta[k])) : text(gta[k]);
         input.addEventListener('input', () => {
-          if (input.validity.badInput) pp.gta[k] = null; // Reject malformed input on save rather than clearing the field.
-          else if (input.value === '') delete pp.gta[k];
-          else pp.gta[k] = input.valueAsNumber;
-          onEdit?.();
-          updateControls();
+          if (input.validity.badInput) gta[k] = null; // Reject malformed input on save rather than clearing the field.
+          else if (input.value === '') delete gta[k];
+          else gta[k] = input.valueAsNumber;
+          pp.gta = gta;
+          edited();
         });
         fwrap.append(flabel, input); gtaGrid.append(fwrap);
       }
       // fps and stability
       const fpsFid = 'field-' + ++fieldId;
-      const fpsWrap = element('div', 'field'); const fpsLabel = element('label', '', '帧率 (fps)'); fpsLabel.htmlFor = fpsFid;
+      const fpsWrap = element('div', 'field'); const fpsLabel = element('label', '', '帧率（旧记录）'); fpsLabel.htmlFor = fpsFid;
       const fpsInput = element('input'); fpsInput.id = fpsFid; fpsInput.type = 'text'; fpsInput.inputMode = 'numeric';
-      fpsInput.placeholder = '0–240'; fpsInput.value = pp.gta.fps !== undefined ? String(pp.gta.fps) : '';
-      fpsInput.addEventListener('input', () => { const v=parseFloat(fpsInput.value); pp.gta.fps=(Number.isFinite(v)&&v>=0&&v<=240)?v:undefined; if(pp.gta.fps===undefined)delete pp.gta.fps; onEdit?.(); updateControls(); });
+      fpsInput.placeholder = '0–240'; fpsInput.value = text(gta.fps);
+      fpsInput.addEventListener('input', () => {
+        const value = parseFloat(fpsInput.value);
+        if (Number.isFinite(value) && value >= 0 && value <= 240) gta.fps = value;
+        else delete gta.fps;
+        pp.gta = gta;
+        edited();
+      });
       fpsWrap.append(fpsLabel, fpsInput); gtaGrid.append(fpsWrap);
 
       const stabFid = 'field-' + ++fieldId;
-      const stabWrap = element('div', 'field'); const stabLabel = element('label', '', '稳定性'); stabLabel.htmlFor = stabFid;
+      const stabWrap = element('div', 'field'); const stabLabel = element('label', '', '稳定性（旧记录）'); stabLabel.htmlFor = stabFid;
       const stabSel = element('select'); stabSel.id = stabFid;
       stabSel.append(new Option('未填', ''), ...Object.entries(ppStabilities).map(([v,cap]) => new Option(cap, v)));
-      stabSel.value = pp.gta.stability || '';
-      stabSel.addEventListener('change', () => { if(stabSel.value) pp.gta.stability=stabSel.value; else delete pp.gta.stability; onEdit?.(); updateControls(); });
+      stabSel.value = gta.stability || '';
+      stabSel.addEventListener('change', () => {
+        if (stabSel.value) gta.stability = stabSel.value;
+        else delete gta.stability;
+        pp.gta = gta;
+        edited();
+      });
       stabWrap.append(stabLabel, stabSel); gtaGrid.append(stabWrap);
       panel.append(gtaGrid);
 
@@ -1101,7 +1100,7 @@
         ['provenOn', '在哪款游戏上验证过（可选）', { optional: true, maxLength: 100, placeholder: '例如 Halo Infinite' }],
         ['verification', '核验状态', { choices: ppVerifications }],
         ['assessedAt', '评估日期', { kind: 'date', optional: true }],
-      ], onEdit));
+      ], edited));
 
       // works / blocking lists
       for (const [listKey, listTitle] of [['works','已经能做到（每行一条，最多 6 条）'],['blocking','卡在哪里（每行一条，最多 6 条）']]) {
@@ -1113,7 +1112,7 @@
         ta.addEventListener('input', () => {
           const lines = ta.value.split('\n').map(s=>s.trim()).filter(Boolean).slice(0, 6);
           if (lines.length) pp[listKey] = lines; else delete pp[listKey];
-          onEdit?.(); updateControls();
+          edited();
         });
         lwrap.append(llabel, ta); panel.append(lwrap);
       }
@@ -1121,15 +1120,18 @@
       group.append(panel);
     };
 
-    if (toggle.checked) mount();
+    if (required || toggle.checked) mount();
 
     toggle.addEventListener('change', () => {
       if (toggle.checked) {
+        project.portProgress = pp ??= {};
         mount();
+        onEdit?.();
+        updateControls();
       } else {
         delete project.portProgress;
         pp = null;
-        if (panel) { panel.remove(); panel = null; }
+        if (panel) { panel.removeAttribute('id'); dismiss(panel); panel = null; }
         onEdit?.();
         updateControls();
       }
@@ -1167,13 +1169,10 @@
         return body;
       },
     },
-    roadmap: {
-      title: '可玩情况与游戏内进度',
-      intro: '维护「现在能玩吗？」的结论和游戏内阶段。',
+    playability: {
+      intro: '更新首页「现在能玩吗？」展示的结论和依据。',
       build() {
-        const route = draft.roadmap;
-        const body = element('div', 'section-body');
-        const verdict = optionalFields(route, 'playability', '填写可玩情况', [
+        return optionalFields(draft.roadmap, 'playability', '填写可玩情况', [
           ['status', '当前可玩状态', { choices: {
             unplayable: '红·不能玩',
             unstable: '黄·能进入游戏，运行不稳定',
@@ -1182,9 +1181,11 @@
           ['summary', '当前结论', { wide: true, maxLength: 110 }],
           ['sourceUrl', '依据链接（可选）', { ...link, optional: true, wide: true }],
         ], { summary: '' }, '只填写能核对的运行结果。未填写时，前台仍会显示默认判断。');
-        body.append(verdict, gameplayProgressEditor(route), communityBuildEditor(route));
-        return body;
       },
+    },
+    roadmap: {
+      intro: '维护有公开依据的游戏内阶段。',
+      build: () => gameplayProgressEditor(draft.roadmap),
     },
     news: {
       title: '新闻时间线',
@@ -1202,7 +1203,7 @@
       }),
     },
     announcements: {
-      title: '社区公告',
+      title: '站公告',
       intro: '保留原文入口。核对来源后再更新日期；中文摘要不要加入未核实的下载链接。',
       build() {
         const body = element('div', 'section-body');
@@ -1243,53 +1244,46 @@
     },
     projects: {
       title: '工程档案',
-      intro: '用短标题和一句摘要说清它能做什么。其他游戏能运行，不代表 GTA VI 能启动。',
-      build: () => list(draft.projects, {
-        label: '项目列表', noun: '项目',
-        fields: [
-          ['title', '公开标题'], ['repo', 'GitHub 仓库', { kind: 'literal', placeholder: 'owner/name' }],
-          ['type', '类型', { choices: projectTypes }], ['status', '状态', { choices: projectStatuses }],
-          ['progress', '最新进度', { wide: true, maxLength: 250, hint: '一句话说明最新进展，最多 250 个字符。' }],
-          ['summary', '简短摘要', paragraph],
-        ],
-        buildExtra: (item, onEdit) => {
-          const extras = document.createDocumentFragment();
-          extras.append(optionalFields(item, 'evidence', '显示测试记录', [
-            ['tested', '测试了什么，结果如何', { wide: true, maxLength: 80, placeholder: '例如：自带的示例程序已显示画面' }],
-            ['level', '证据级别', { choices: evidenceLevels }],
-            ['sourceUrl', '依据链接', { ...link, optional: true, hint: '公开演示或独立复现必须有 HTTPS 链接。' }],
-            ['blocker', '还卡在哪（可选）', { wide: true, optional: true, maxLength: 150 }],
-          ], { tested: '', level: 'unverified' }, '写清测试对象和结果。关闭后清除测试记录。', onEdit),
-          portProgressEditor(item, onEdit));
-          return extras;
-        },
-        extra: [
-          ['url', '项目原文链接', { ...link, optional: true, wide: true }],
-          ['id', '项目标识', { kind: 'literal', optional: true }], ['logo', '图标路径（不加载预览）', { ...link, optional: true }],
-          ['game', '涉及游戏', { optional: true }], ['highlight', '亮点标签', { optional: true }],
-          ['tags', '标签', { kind: 'tags', hint: '每行一个标签。', optional: true, wide: true }],
-          ['headline', '项目进展标题', { optional: true, wide: true }],
-          ['state', '详细进展', { ...paragraph, optional: true }], ['approach', '实现方式', { ...paragraph, optional: true }],
-          ['licenseNote', '许可说明', { optional: true }], ['authorNote', '作者说明', { ...paragraph, optional: true }],
-        ],
-        blank: () => ({ title: '', repo: '', type: '', status: '', progress: '', summary: '' }),
-        meta: (item) => [text(item.repo), caption(projectStatuses, item.status)].filter(Boolean).join(' · '),
-        search: (item) => [item.title, item.repo, item.type, item.status, item.game, item.highlight,
-          caption(projectTypes, item.type), caption(projectStatuses, item.status), ...(Array.isArray(item.tags) ? item.tags : [])]
-          .map(text).join(' ').toLowerCase(),
-      }),
-    },
-    community: {
-      title: '社区群组',
-      intro: '更新群号和入口。群组不能再加入时，标记「已满」。',
-      build: () => list(draft.community.groups, {
-        label: '群组列表', noun: '群组', titleKey: 'name',
-        fields: [['name', '群组名称'], ['number', '群号', { kind: 'number' }], ['url', '入群链接', { ...link, wide: true }], ['full', '群组已满', { kind: 'check' }]],
-        buildExtra: groupAvatarEditor,
-        onRemove: (_, group) => avatarJobs.delete(group),
-        blank: () => ({ name: '', number: '', full: false, url: '' }),
-        meta: (item) => [text(item.number), item.full === true ? '已满' : ''].filter(Boolean).join(' · '),
-      }),
+      intro: '分别维护私有和公开仓库的进展。用短标题和一句摘要说清项目能做什么。',
+      build() {
+        const body = element('div', 'section-body');
+        const publicRepositories = list(draft.projects, {
+          label: '公开仓库', noun: '公开仓库',
+          fields: [
+            ['title', '公开标题'], ['repo', 'GitHub 仓库', { kind: 'literal', placeholder: 'owner/name' }],
+            ['type', '类型', { choices: projectTypes }], ['status', '状态', { choices: projectStatuses }],
+            ['progress', '最新进度', { wide: true, maxLength: 250, hint: '一句话说明最新进展，最多 250 个字符。' }],
+            ['summary', '简短摘要', paragraph],
+          ],
+          buildExtra: (item, onEdit) => {
+            const extras = document.createDocumentFragment();
+            extras.append(optionalFields(item, 'evidence', '显示测试记录', [
+              ['tested', '测试了什么，结果如何', { wide: true, maxLength: 80, placeholder: '例如：自带的示例程序已显示画面' }],
+              ['level', '证据级别', { choices: evidenceLevels }],
+              ['sourceUrl', '依据链接', { ...link, optional: true, hint: '公开演示或独立复现必须有 HTTPS 链接。' }],
+              ['blocker', '还卡在哪（可选）', { wide: true, optional: true, maxLength: 150 }],
+            ], { tested: '', level: 'unverified' }, '写清测试对象和结果。关闭后清除测试记录。', onEdit),
+            portProgressEditor(item, onEdit));
+            return extras;
+          },
+          extra: [
+            ['url', '项目原文链接', { ...link, optional: true, wide: true }],
+            ['id', '项目标识', { kind: 'literal', optional: true }], ['logo', '图标路径（不加载预览）', { ...link, optional: true }],
+            ['game', '涉及游戏', { optional: true }], ['highlight', '亮点标签', { optional: true }],
+            ['tags', '标签', { kind: 'tags', hint: '每行一个标签。', optional: true, wide: true }],
+            ['headline', '项目进展标题', { optional: true, wide: true }],
+            ['state', '详细进展', { ...paragraph, optional: true }], ['approach', '实现方式', { ...paragraph, optional: true }],
+            ['licenseNote', '许可说明', { optional: true }], ['authorNote', '作者说明', { ...paragraph, optional: true }],
+          ],
+          blank: () => ({ title: '', repo: '', type: '', status: '', progress: '', summary: '' }),
+          meta: (item) => [text(item.repo), caption(projectStatuses, item.status)].filter(Boolean).join(' · '),
+          search: (item) => [item.title, item.repo, item.type, item.status, item.game, item.highlight,
+            caption(projectTypes, item.type), caption(projectStatuses, item.status), ...(Array.isArray(item.tags) ? item.tags : [])]
+            .map(text).join(' ').toLowerCase(),
+        });
+        body.append(privateRepositoriesEditor(draft.roadmap), publicRepositories);
+        return body;
+      },
     },
   };
 
@@ -1299,7 +1293,6 @@
     intro.textContent = editor.intro;
     const panel = element('div', 'section-content');
     panel.append(editor.build());
-    avatarJobs.clear();
     form.replaceChildren(panel);
     if (focus) byId('editorial-title').focus({ preventScroll: true });
   }

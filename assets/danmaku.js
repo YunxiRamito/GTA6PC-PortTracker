@@ -56,6 +56,8 @@
   const options = document.getElementById('danmakuOptions');
   const optionsClose = document.getElementById('danmakuOptionsClose');
   const appearanceForm = document.getElementById('danmakuAppearance');
+  const groupTagSelect = document.getElementById('danmakuGroupTag');
+  const groupTagPreview = document.getElementById('danmakuGroupPreview');
   const nicknameInput = document.getElementById('danmakuNickname');
   const guestNickname = document.getElementById('danmakuGuestNickname');
   const accountSummary = document.getElementById('danmakuAccountSummary');
@@ -255,11 +257,16 @@
     return nicknameUnits(nickname) <= NICKNAME_LIMIT ? nickname : null;
   }
 
+  function validGroupTag(value) {
+    return Number.isInteger(value) && value >= 1 && value <= 8;
+  }
+
   function readAppearance() {
     let stored;
     try { stored = JSON.parse(storageRead(APPEARANCE_KEY)); } catch { /* Discard invalid saved values. */ }
     return {
       nickname: cleanNickname(stored?.nickname) ?? '',
+      groupTag: validGroupTag(stored?.groupTag) ? stored.groupTag : undefined,
       color: MEMBER_COLORS.has(stored?.color) ? stored.color : 'default',
       sponsorColor: MEMBER_COLORS.has(stored?.sponsorColor) || SPONSOR_COLORS.has(stored?.sponsorColor)
         ? stored.sponsorColor : 'gold',
@@ -637,6 +644,7 @@
       id, text, admin, anonymous: value.anonymous === true,
       createdAt: typeof value.createdAt === 'string' ? value.createdAt : '',
       moderation: isModeration,
+      groupTag: !isModeration && validGroupTag(value.groupTag) ? value.groupTag : undefined,
       nickname: isModeration ? '' : cleanNickname(value.nickname) ?? '',
       color: !isModeration && canDisplayColor ? value.color
         : !isModeration && STAFF_COLORS.has(value.staff) ? STAFF_COLORS.get(staff)[0] : '',
@@ -889,6 +897,23 @@
     }
   }
 
+  function paintGroupTag(badge, groupTag) {
+    if (validGroupTag(groupTag)) {
+      badge.textContent = `${groupTag}群`;
+      badge.dataset.groupTag = String(groupTag);
+    } else {
+      delete badge.dataset.groupTag;
+    }
+  }
+
+  function appendGroupTag(line, item) {
+    if (!validGroupTag(item.groupTag)) return;
+    const badge = document.createElement('span');
+    badge.className = 'danmaku-group-tag';
+    paintGroupTag(badge, item.groupTag);
+    line.append(badge);
+  }
+
   function measureChip(item, localOnly) {
     if (geometry.maxWidth < 64 || geometry.baseline < 24) return null;
     const chip = document.createElement('span');
@@ -903,6 +928,7 @@
       const line = document.createElement('span');
       line.className = 'danmaku-message-head';
       appendIdentity(line, item);
+      appendGroupTag(line, item);
       const like = document.createElement('span');
       like.className = 'danmaku-like';
       const count = document.createElement('span');
@@ -1332,6 +1358,7 @@
       meta.append(author);
     } else {
       appendIdentity(meta, item);
+      appendGroupTag(meta, item);
     }
     const date = new Date(item.createdAt);
     if (Number.isFinite(date.getTime())) {
@@ -1550,6 +1577,10 @@
     if (!options.inert) return;
     closeHistoryDrawer(false);
     nicknameInput.value = appearance.nickname;
+    if (groupTagSelect) {
+      groupTagSelect.value = appearance.groupTag ?? '';
+      paintGroupTag(groupTagPreview, appearance.groupTag);
+    }
     appearanceStatus.textContent = '';
     nicknameInput.removeAttribute('aria-invalid');
     renderAccountOptions();
@@ -1611,6 +1642,7 @@
     nicknameInput.removeAttribute('aria-invalid');
     updateNicknameCount();
   });
+  groupTagSelect?.addEventListener('change', () => paintGroupTag(groupTagPreview, Number(groupTagSelect.value)));
   appearanceForm.addEventListener('submit', event => {
     event.preventDefault();
     const nickname = member ? appearance.nickname : cleanNickname(nicknameInput.value);
@@ -1623,6 +1655,10 @@
     }
     const color = appearanceForm.elements.color.value;
     appearance.nickname = nickname;
+    if (groupTagSelect) {
+      const tag = Number(groupTagSelect.value);
+      appearance.groupTag = validGroupTag(tag) ? tag : undefined;
+    }
     if (signedIn()) {
       const role = staffRole();
       const sponsor = member?.sponsor === true;
@@ -2558,6 +2594,7 @@
       );
       if (!nonce || nextAvailability === false) return;
       const style = {};
+      if (appearance.groupTag !== undefined) style.groupTag = appearance.groupTag;
       if (!consoleSend && appearance.nickname) style.nickname = appearance.nickname;
       if (consoleSend) style.color = preferredColor();
       const response = await fetch(consoleSend ? adminEndpoint('messages') : '/api/danmaku', {
@@ -2593,7 +2630,7 @@
       if (!consoleSend) readSendCooldown(response, 'X-Danmaku-Cooldown');
       const reply = await response.json().catch(() => null);
       const item = localOnly
-        ? parseItem({ id: 'local-echo:' + ++localEchoId, text, createdAt: new Date().toISOString(), admin: senior, staff: member?.staff, member: Boolean(member), sponsor: member?.sponsor === true, ...style, nickname: member?.nickname ?? style.nickname, anonymous: reply?.anonymous === true })
+        ? parseItem({ id: 'local-echo:' + ++localEchoId, text, createdAt: new Date().toISOString(), admin: senior, staff: member?.staff, member: Boolean(member), sponsor: member?.sponsor === true, ...style, groupTag: reply?.anonymous === true ? reply.groupTag : style.groupTag, nickname: member?.nickname ?? style.nickname, anonymous: reply?.anonymous === true })
         : parseItem(reply);
       if (posted && !senior) {
         hasSent = true;

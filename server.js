@@ -871,14 +871,15 @@ function createPublicServer({ getContent, getSponsors, getSponsorAvatar, getDash
     }
     if (pathname === '/api/content') {
       if (req.method !== 'GET') return sendJson(res, 405, { error: '只支持 GET' }, { Allow: 'GET', Connection: 'close' });
-      const payload = getContent();
-      if (!payload) return sendJson(res, 503, { error: '内容正在同步' });
-      const headers = { ETag: payload.revision, 'Cache-Control': 'no-cache', Vary: 'Accept-Encoding' };
-      if (req.headers['if-none-match'] === payload.revision) {
+      const data = getContent();
+      if (!data) return sendJson(res, 503, { error: '内容正在同步' });
+      const etag = data.revision;
+      const headers = { ETag: etag, 'Cache-Control': 'no-cache', Vary: 'Accept-Encoding' };
+      if (req.headers['if-none-match'] === etag) {
         res.writeHead(304, headers);
         return res.end();
       }
-      return sendJson(res, 200, payload, headers, req);
+      return sendJson(res, 200, data, headers, req);
     }
     if (pathname === '/api/dashboard') {
       if (req.method !== 'GET') return sendJson(res, 405, { error: '只支持 GET' }, { Allow: 'GET', Connection: 'close' });

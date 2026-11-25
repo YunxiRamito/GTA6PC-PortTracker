@@ -104,7 +104,13 @@ html:has(.feedback-notice-dialog[open]) { overflow: hidden; }
   max-height: calc(var(--feedback-dialog-height) - 2px);
   padding: clamp(20px, 5vw, 36px);
 }
-.feedback-notice-title { color: #fff5ed; font: 900 clamp(1.6rem, 6vw, 2.3rem)/1.2 var(--display); }
+.feedback-notice-title {
+  color: #fff5ed;
+  font: 900 clamp(1.6rem, 6vw, 2.3rem)/1.2 var(--display);
+  max-block-size: min(30svh, 10rem);
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
 .feedback-notice-title:focus { outline: none; }
 .feedback-notice-body {
   overflow: auto;

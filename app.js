@@ -55,6 +55,7 @@
 
   var PROJECT_PREVIEW_LIMIT = 3;
   var EXTERNAL_PROGRESS_KEY = Symbol('external-progress');
+  var LEGACY_EXTERNAL_KEY = Symbol('legacy-external-progress');
   var renderedCards = null;
   var appearedFills = new WeakSet();
   var emptyOpenDetails = { progress: new Set(), evidence: new Set(), portProgress: new Set() };
@@ -130,7 +131,78 @@
   }
 
   function archiveCardKey(card) {
-    return card.dataset.privateRepo ?? (card.dataset.externalProgress !== undefined ? EXTERNAL_PROGRESS_KEY : card.dataset.repo);
+    return card.dataset.archiveKey || (card.dataset.externalProgress !== undefined ? EXTERNAL_PROGRESS_KEY : card.dataset.repo);
+  }
+
+  function projectAnchorId(repo) {
+    var value = typeof repo === 'string' ? repo.trim().toLowerCase() : '';
+    if (!value) return '';
+    var slug = value.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    return slug ? 'project-' + slug : '';
+  }
+
+  function privateRepositoryAnchor(item) {
+    var slug;
+    if (item && typeof item === 'object' && typeof item.slug === 'string') {
+      slug = item.slug.trim().toLowerCase();
+    } else {
+      slug = typeof item === 'string' ? item : item && item.id;
+      slug = typeof slug === 'string' ? slug.trim().toLowerCase().replace(/^private-repo-/, '') : '';
+    }
+    slug = slug.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    return slug ? 'private-repo-' + slug : '';
+  }
+
+  function scrollToArchiveAnchor(id, focus) {
+    var card = id ? document.getElementById(id) : null;
+    if (!card) return false;
+    if (window.history && window.history.replaceState) window.history.replaceState(null, '', '#' + id);
+    var behavior = reduceMotion && reduceMotion.matches ? 'instant' : 'smooth';
+    card.scrollIntoView({ block: 'start', behavior: behavior });
+    if (focus) {
+      var target = card.querySelector('.card-repo, .card-external-source');
+      if (target) {
+        target.focus({ preventScroll: true });
+        window.setTimeout(function () {
+          var current = document.getElementById(id);
+          var next = current && current.querySelector('.card-repo, .card-external-source');
+          if (next) next.focus({ preventScroll: true });
+        }, 0);
+      }
+    }
+    return true;
+  }
+
+  function scrollToProjectCard(repo, focus) {
+    return scrollToArchiveAnchor(projectAnchorId(repo), focus);
+  }
+
+  function focusProjectArchive(repo) {
+    if (!state.data || typeof repo !== 'string') return false;
+    var id = projectAnchorId(repo);
+    if (!state.projectsExpanded && !document.getElementById(id)) {
+      state.projectsExpanded = true;
+      renderCards(true);
+    }
+    return scrollToProjectCard(repo, true);
+  }
+
+  function focusCommunityBuild() {
+    if (state.data && !state.projectsExpanded && !document.getElementById('community-build')) {
+      state.projectsExpanded = true;
+      renderCards(true);
+    }
+    return scrollToArchiveAnchor('community-build', true);
+  }
+
+  function focusPrivateRepository(item) {
+    var id = privateRepositoryAnchor(item);
+    if (!id) return false;
+    if (state.data && !state.projectsExpanded && !document.getElementById(id)) {
+      state.projectsExpanded = true;
+      renderCards(true);
+    }
+    return scrollToArchiveAnchor(id, true);
   }
 
   function rememberCardFills(card) {
@@ -169,32 +241,44 @@
   function renderCards(interactive) {
     var d = state.data;
     if (!d) return;
-    // Keep API order within ties and for projects without a ranking score.
-    var list = d.projects.map(function (project) {
-      var score = portScoreLib && project.portProgress && project.status !== 'reference'
+    var ranked = new Map((Array.isArray(d.progress?.ranked) ? d.progress.ranked : []).map(function (item, index) {
+      return [item && item.id, { score: Number(item && item.score), index: index }];
+    }));
+    var order = 0;
+    function scoreFor(id, project) {
+      var api = ranked.get(id);
+      if (api && Number.isFinite(api.score)) return api.score;
+      return portScoreLib && project && project.portProgress && project.status !== 'reference'
         ? portScoreLib.scoreProject(project).score : -1;
-      return { key: project.repo, project: project, score: score };
+    }
+    function entryOrder(id) {
+      var api = ranked.get(id);
+      return api ? api.index : order++;
+    }
+    function compare(a, b) {
+      if (b.score !== a.score) return b.score - a.score;
+      return a.order - b.order;
+    }
+    var list = (Array.isArray(d.projects) ? d.projects : []).map(function (project) {
+      return { key: project.repo, project: project, score: scoreFor(project.id || project.repo, project), order: entryOrder(project.id || project.repo) };
     });
-    var community = d.communityBuild;
-    if (portScoreLib && community && typeof community === 'object' && community.portProgress) {
-      var scored = portScoreLib.scoreProject(community);
-      var card = readExternalProgress({ ...community, score: scored.score });
-      if (card) list.push({ key: EXTERNAL_PROGRESS_KEY, external: { ...card, build: community }, score: scored.score });
-    }
-    if (portScoreLib && Array.isArray(d.privateRepositories)) {
-      d.privateRepositories.forEach(function (project) {
-        if (!project?.portProgress || typeof project.id !== 'string' ||
-            !/^private-repo-(?=[a-z0-9-]{1,48}$)[a-z0-9]+(?:-[a-z0-9]+)*$/.test(project.id)) return;
-        var score = portScoreLib.scoreProject(project).score;
-        var card = readExternalProgress({ ...project, score: score });
-        if (card) list.push({ key: project.id, external: { ...card, build: project, privateId: project.id }, score: score });
+    var privateInput = Array.isArray(d.privateRepositories) ? d.privateRepositories :
+      (d.privateRepositories === undefined && d.communityBuild ? [Object.assign({}, d.communityBuild, { legacyCommunity: true })] : []);
+    var privateKeys = new Set();
+    privateInput.forEach(function (item) {
+      var privateCard = readPrivateRepository(item);
+      if (!privateCard || privateKeys.has(privateCard.key)) return;
+      privateKeys.add(privateCard.key);
+      list.push({
+        key: privateCard.key,
+        external: privateCard,
+        score: scoreFor(privateCard.id, privateCard),
+        order: entryOrder(privateCard.id),
       });
-    }
-    list.sort(function (a, b) { return b.score - a.score; });
-    if (!portScoreLib || !community?.portProgress) {
-      var external = readExternalProgress(d.externalProgress);
-      if (external) list.unshift({ key: EXTERNAL_PROGRESS_KEY, external: external });
-    }
+    });
+    list.sort(compare);
+    var external = readExternalProgress(d.externalProgress);
+    if (external) list.unshift({ key: LEGACY_EXTERNAL_KEY, external: Object.assign({}, external, { legacyExternal: true }), score: -Infinity, order: -1 });
 
     var info = $('resultsInfo');
     var grid = $('cardsGrid');
@@ -212,7 +296,7 @@
     }
     var statuses = d.statuses || {};
     var markup = new Map(shown.map(function (entry) {
-      var html = entry.external ? externalCardHtml(entry.external) : cardHtml(entry.project, statuses, emptyOpenDetails);
+      var html = entry.external ? externalCardHtml(entry.external, false, d.progress) : cardHtml(entry.project, statuses, emptyOpenDetails, d.progress);
       return [entry.key, html];
     }));
     var firstRender = !renderedCards;
@@ -230,7 +314,7 @@
     if (!existing.size && !previousFills.size) {
       grid.innerHTML = Array.from(markup.values()).join('');
     } else {
-      var focusedCard = grid.contains(active) ? active.closest('.card[data-repo], .card[data-external-progress], .card[data-private-repo]') : null;
+      var focusedCard = grid.contains(active) ? active.closest('.card[data-repo], .card[data-external-progress]') : null;
       var focusedControl = focusedCard && ['.card-progress-toggle', '.card-evidence-toggle', '.card-evidence-link',
         '.card-port-details > summary', '.card-repo', '.card-link', '.card-external-source'].find(function (selector) {
         return active.matches(selector);
@@ -246,8 +330,8 @@
         var card = previous;
         if (!previous || renderedCards.get(key) !== html) {
           var open = previous ? cardOpenDetails(previous, key) : emptyOpenDetails;
-          template.innerHTML = entry.external ? externalCardHtml(entry.external, open.portProgress.has(key)) :
-            (open.progress.size || open.evidence.size || open.portProgress.size ? cardHtml(entry.project, statuses, open) : html);
+          template.innerHTML = entry.external ? externalCardHtml(entry.external, open.portProgress.has(key), d.progress) :
+            (open.progress.size || open.evidence.size || open.portProgress.size ? cardHtml(entry.project, statuses, open, d.progress) : html);
           card = template.content.firstElementChild;
           restoreCardFills(card);
           if (previous) previous.replaceWith(card);
@@ -319,11 +403,77 @@
   var portScoreLib = window.PortScore;
   var GROUNDWORK_DEFS = portScoreLib ? portScoreLib.GROUNDWORK : [];
 
-  function cardPortProgress(p, open) {
+  function portMilestones(progress) {
+    var labels = progress && progress.labels && typeof progress.labels === 'object' ? progress.labels : {};
+    var source = progress && Array.isArray(progress.milestones) && progress.milestones.length
+      ? progress.milestones : (portScoreLib && Array.isArray(portScoreLib.MILESTONES) ? portScoreLib.MILESTONES : []);
+    var result = [];
+    var seen = new Set();
+    source.slice(0, 16).forEach(function (item, index) {
+      var key = item && typeof item.key === 'string' ? item.key.trim() : (item && typeof item.id === 'string' ? item.id.trim() : '');
+      if (!key || seen.has(key)) return;
+      var label = item && typeof item.label === 'string' && item.label.trim() ? item.label.trim() :
+        (typeof labels[key] === 'string' && labels[key].trim() ? labels[key].trim() : key);
+      var at = Number.isFinite(Number(item && item.at)) ? Math.min(100, Math.max(0, Number(item.at))) :
+        (source.length > 1 ? index / (source.length - 1) * 100 : 0);
+      seen.add(key);
+      result.push({ key: key, label: label, at: at });
+    });
+    var rendered = result.some(function (item) { return /render|渲染/i.test(item.key) || /render|渲染/i.test(item.label); });
+    if (!rendered) {
+      var before = result.find(function (item) { return item.key === 'ingame'; });
+      var after = result.find(function (item) { return item.key === 'fps30' || /30/.test(item.key); });
+      if (before && after && after.at > before.at) {
+        result.push({ key: 'rendered', label: '完全渲染', at: before.at + (after.at - before.at) / 2 });
+        result.sort(function (a, b) { return a.at - b.at; });
+      }
+    }
+    return result;
+  }
+
+  function factorText(value, fallback) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      for (var key of ['label', 'status', 'text', 'value']) {
+        if (typeof value[key] === 'string' && value[key].trim()) return value[key].trim();
+        if (typeof value[key] === 'number' && Number.isFinite(value[key])) return String(value[key]);
+      }
+    }
+    return fallback;
+  }
+
+  var cardStabilityLabels = {
+    unknown: '待核实', constant: '频繁崩溃', often: '经常崩溃',
+    sometimes: '偶尔崩溃', rarely: '很少崩溃', stable: '稳定',
+  };
+
+  function cardPortFactors(pp) {
+    var gta = pp && pp.gta && typeof pp.gta === 'object' ? pp.gta : {};
+    var factors = pp && (pp.factors || pp.factorSummary) && typeof (pp.factors || pp.factorSummary) === 'object'
+      ? (pp.factors || pp.factorSummary) : {};
+    var rendered = typeof gta.rendered === 'number' && Number.isFinite(gta.rendered)
+      ? Math.round(Math.min(1, Math.max(0, gta.rendered)) * 100) + '%'
+      : (gta.rendered === true || gta.rendered === 1 ? '完全渲染' : '待核实');
+    var stability = factorText(factors.stability, factorText(gta.stability, '待核实'));
+    var rows = [
+      ['性能', factorText(factors.performance || factors.fps, typeof gta.fps === 'number' ? gta.fps + ' FPS' : '待核实')],
+      ['渲染', factorText(factors.rendering || factors.render, rendered)],
+      ['稳定性', ownValue(cardStabilityLabels, stability) || stability],
+      ['完整性', factorText(factors.completeness || factors.integrity, factorText(pp.completeness, '待核实'))],
+    ];
+    var hasSource = Object.keys(factors).length || Object.keys(gta).length || pp.completeness !== undefined;
+    if (!hasSource) return '';
+    return '<div class="card-port-factors" aria-label="项目进度说明">' + rows.map(function (row) {
+      return '<div class="card-port-factor"><span>' + escapeHtml(row[0]) + '</span><b>' + escapeHtml(row[1]) + '</b></div>';
+    }).join('') + '</div>';
+  }
+
+  function cardPortProgress(p, open, progress) {
     if (!portScoreLib || !p.portProgress) return '';
     var scored = portScoreLib.scoreProject(p);
     var score = scored.score;
-    var milestones = portScoreLib.MILESTONES;
+    var milestones = portMilestones(progress);
     var ticks = milestones.slice(1).map(function (m) {
       return '<i style="left:' + m.at + '%"></i>';
     }).join('');
@@ -349,6 +499,7 @@
       }).join('') + '</div>';
     }
     var pp = p.portProgress;
+    var factors = cardPortFactors(pp);
     var works = Array.isArray(pp.works) && pp.works.length
       ? '<div class="card-port-works"><p class="card-port-works-title">已经能做到</p><ul>' +
         pp.works.slice(0, 6).map(function (w) { return '<li>' + escapeHtml(w) + '</li>'; }).join('') +
@@ -374,6 +525,7 @@
         '<div class="card-port-ticks">' + ticks + '</div>' +
       '</div>' +
       '<div class="card-port-labels port-progress-labels">' + labels + '</div>' +
+      factors +
       (hasDetails
         ? '<details class="card-port-details"' + (open ? ' open' : '') + '><summary>详情</summary>' + gwRows + works + blocking + meta + '</details>'
         : '') +
@@ -410,7 +562,7 @@
       '</div>' +
     '</details>';
   }
-  function cardHtml(p, statusMap, open) {
+  function cardHtml(p, statusMap, open, progress) {
     var title = plainText(p.title) || String(p.repo || '').split('/').pop() || '未命名项目';
     var summary = plainText(p.summary) || '暂无简明介绍，详情请查看原仓库。';
     var type = ownValue(typeLabels, p.type) || p.typeLabel || p.type || '类型未标注';
@@ -423,14 +575,15 @@
     var pushed = gh.pushedAt ? relativeTime(gh.pushedAt) : (p.daysSincePush != null ? p.daysSincePush + '天前' : '—');
     var fallbackIcon = '<svg class="ui-icon card-logo card-logo-fallback" viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
       '<use href="/assets/ui/fluent.svg#document"></use></svg>';
-    return '<article class="card" data-repo="' + escapeAttr(p.repo) + '">' +
+    var anchorId = projectAnchorId(p.repo);
+    return '<article class="card"' + (anchorId ? ' id="' + escapeAttr(anchorId) + '" data-project-anchor="' + escapeAttr(anchorId) + '"' : '') + ' data-repo="' + escapeAttr(p.repo) + '">' +
       '<div class="card-identity">' + fallbackIcon +
         (url ? '<a class="card-repo" href="' + url + '" target="_blank" rel="noopener">' + escapeHtml(p.repo) + '</a>' :
           '<span class="card-repo" tabindex="-1">' + escapeHtml(p.repo) + '</span>') +
       '</div>' +
       '<h3 class="card-title">' + escapeHtml(title) + '</h3>' +
       '<p class="card-summary card-block">' + escapeHtml(summary) + '</p>' +
-      cardPortProgress(p, open.portProgress.has(p.repo)) +
+      cardPortProgress(p, open.portProgress.has(p.repo), progress) +
       '<div class="card-progress">' +
         '<div class="card-progress-header">' +
           '<h4 class="card-progress-label">最新进展</h4>' +
@@ -453,6 +606,36 @@
     '</article>';
   }
 
+  function readPrivateRepository(item) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
+    var id = typeof item.id === 'string' && /^private-repo-[a-z0-9][a-z0-9-]*$/i.test(item.id.trim())
+      ? item.id.trim() : '';
+    var anchorId = item.legacyCommunity ? 'community-build' : privateRepositoryAnchor(item);
+    if (!id && item.legacyCommunity) id = 'community-build';
+    var title = plainText(item.title);
+    var summary = plainText(item.summary);
+    var sourceLabel = plainText(item.sourceLabel);
+    var sourceUrl = safeHttpsUrl(item.sourceUrl);
+    if (!id || !anchorId || !title || !summary || !sourceLabel || !sourceUrl || !item.portProgress || typeof item.portProgress !== 'object') return null;
+    var score = portScoreLib ? portScoreLib.scoreProject(item).score : null;
+    if (!Number.isFinite(score)) return null;
+    return {
+      id: id,
+      key: id,
+      anchorId: anchorId,
+      title: title,
+      summary: summary,
+      sourceLabel: sourceLabel,
+      sourceUrl: sourceUrl,
+      score: score,
+      build: item,
+      portProgress: item.portProgress,
+      status: item.status || 'progress',
+      privateRepository: !item.legacyCommunity,
+      legacyCommunity: Boolean(item.legacyCommunity),
+    };
+  }
+
   function readExternalProgress(item) {
     if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
     var title = plainText(item.title);
@@ -464,12 +647,13 @@
     return { title: title, score: score, summary: summary, sourceLabel: sourceLabel, sourceUrl: sourceUrl };
   }
 
-  function externalCardHtml(progress, open = false) {
+  function externalCardHtml(progress, open = false, progressScale) {
     var title = escapeHtml(progress.title);
     var score = String(progress.score);
-    var identity = progress.privateId ? ' data-private-repo="' + escapeAttr(progress.privateId) + '"' : ' data-external-progress';
-    var sourceTarget = progress.sourceUrl.startsWith('#') ? '' : ' target="_blank" rel="noopener noreferrer"';
-    var progressBar = progress.build ? cardPortProgress(progress.build, open) :
+    var label = progress.privateRepository ? '私有仓库' : (progress.legacyCommunity ? '社区构建' : '外部评估');
+    var anchor = progress.anchorId ? ' id="' + escapeAttr(progress.anchorId) + '" data-project-anchor="' + escapeAttr(progress.anchorId) + '"' : '';
+    var archiveKey = progress.key ? ' data-archive-key="' + escapeAttr(progress.key) + '"' : '';
+    var progressBar = progress.build ? cardPortProgress(progress.build, open, progressScale) :
       '<div class="card-port-progress">' +
         '<div class="card-port-score-row" aria-hidden="true"><span class="card-port-score-num">' + score + '<small>%</small></span></div>' +
         '<div class="card-port-track" role="progressbar" aria-label="' + title + ' 进度"' +
@@ -477,12 +661,12 @@
           '<div class="card-port-fill progress-motion-fill" data-progress-key="score" style="--w:' + score + '%"></div>' +
         '</div>' +
       '</div>';
-    return '<article class="card card-external"' + identity + '>' +
-      '<p class="card-external-label">' + (progress.privateId ? '私有仓库' : '社区构建') + '</p>' +
+    return '<article class="card card-external' + (progress.privateRepository ? ' card-private-repository' : '') + '"' + anchor + archiveKey + ' data-external-progress>' +
+      '<p class="card-external-label">' + label + '</p>' +
       '<h3 class="card-title">' + title + '</h3>' +
       '<p class="card-summary card-block">' + escapeHtml(progress.summary) + '</p>' +
       progressBar +
-      '<a class="text-link card-external-source" href="' + escapeAttr(progress.sourceUrl) + '"' + sourceTarget + '>' +
+      '<a class="text-link card-external-source" href="' + escapeAttr(progress.sourceUrl) + '" target="_blank" rel="noopener noreferrer">' +
         '<span>运行记录 · ' + escapeHtml(progress.sourceLabel) + '</span>' +
         '<svg class="ui-icon" aria-hidden="true"><use href="/assets/ui/fluent.svg#arrow-up-right"></use></svg>' +
       '</a>' +
@@ -760,9 +944,6 @@
 
   function bindEvents() {
     var grid = $('cardsGrid');
-    grid.addEventListener('error', function (e) {
-      if (e.target.matches('img.card-logo')) e.target.hidden = true;
-    }, true);
     grid.addEventListener('animationstart', function (e) {
       if (e.animationName === 'progress-motion-shimmer') appearedFills.add(e.target);
     });
@@ -778,6 +959,17 @@
     if (reduceMotion && reduceMotion.addEventListener) {
       reduceMotion.addEventListener('change', function (e) { if (e.matches) cancelResultsMotion(); });
     }
+    document.addEventListener('click', function (event) {
+      var link = event.target.closest && event.target.closest('.port-progress-leader-link');
+      if (!link || event.defaultPrevented || event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      var href = link.getAttribute('href') || '';
+      var handled = href === '#community-build'
+        ? focusCommunityBuild()
+        : href.indexOf('#private-repo-') === 0
+          ? focusPrivateRepository(href.slice(1))
+          : href.indexOf('#project-') === 0 ? scrollToArchiveAnchor(href.slice(1), true) : false;
+      if (handled) event.preventDefault();
+    }, true);
     // 进度时间线：默认收起，点击展开/收起
     var tlToggle = $('timelineToggle');
     if (tlToggle) tlToggle.addEventListener('click', function () {
@@ -790,6 +982,9 @@
 
   /* ---------------- init ---------------- */
   function init() {
+    window.focusProjectArchive = focusProjectArchive;
+    window.focusCommunityBuild = focusCommunityBuild;
+    window.focusPrivateRepository = focusPrivateRepository;
     bindEvents();
     window.addEventListener('online', fetchData);
     setInterval(fetchData, DASHBOARD_POLL_MS);

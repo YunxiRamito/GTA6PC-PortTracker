@@ -7,7 +7,7 @@ const { ContentError } = require('./_content');
 const { cleanDanmakuText, cleanDanmakuNickname } = require('./_danmaku-filter');
 const { createWordStore } = require('./_danmaku-words');
 const { createMuteStore, parseMuteDuration, UUID, SUBJECT } = require('./_danmaku-mutes');
-const { createDanmakuHistory, RETENTION_DAYS } = require('./_danmaku-history');
+const { createDanmakuHistory, RETENTION_DAYS, isGroupTag } = require('./_danmaku-history');
 const { createCommunityMuteStore } = require('./_danmaku-community-mutes');
 const { createDanmakuSettings } = require('./_danmaku-settings');
 const { createScheduledDanmaku } = require('./_danmaku-scheduled');
@@ -198,6 +198,7 @@ function verifyMessage(value, forArchive = false) {
     ...appearance(admin === true && staff === 'moderator' && nickname === '系统' ? nickname : cleanDanmakuNickname(nickname), color, admin === true, staff, value.member === true && value.sponsor === true),
     ...(value.member === true ? { member: true } : {}),
     ...(value.member === true && value.sponsor === true ? { sponsor: true } : {}),
+    ...(isGroupTag(value.groupTag) ? { groupTag: value.groupTag } : {}),
     ...(value.member === true && typeof value.avatar === 'string' && AVATAR_TAG.test(value.avatar) ? { avatar: value.avatar } : {}),
     ...(validLikeCount(value.likes) ? { likes: value.likes } : {}),
   };
@@ -471,11 +472,11 @@ function createRelay({ origin, fetchUpstream, relayKey, publish, removeMessages,
     return reply ? JSON.parse(reply) : null;
   }
 
-  async function send({ text, nonce, nickname }, subject, quota, deviceSubject, clientIP) {
+  async function send({ text, nonce, nickname, groupTag }, subject, quota, deviceSubject, clientIP) {
     // The primary consumes the nonce and runs the authoritative nickname checks.
     const bridge = controller;
     const body = {
-      text, nonce,
+      text, nonce, groupTag,
       nickname: nickname === undefined || typeof nickname === 'string' ? nickname : null,
     };
     const headers = { 'Content-Type': 'application/json', Accept: 'application/json', ...privateHeaders(subject, quota, deviceSubject, undefined, undefined, clientIP) };
@@ -654,8 +655,14 @@ function createRelay({ origin, fetchUpstream, relayKey, publish, removeMessages,
 }
 
 function anonymousMirrorMessage(message) {
-  const { id, text, createdAt } = message;
-  return { id, text, createdAt, anonymous: true };
+  const { id, text, createdAt, groupTag } = message;
+  return { id, text, createdAt, anonymous: true, ...(isGroupTag(groupTag) ? { groupTag } : {}) };
+}
+
+function submissionGroupTag(body) {
+  const tag = body?.groupTag;
+  if (tag !== undefined && !isGroupTag(tag)) throw new ContentError(400, '群标签须为 1 到 8 的整数');
+  return tag;
 }
 
 function createDanmaku({
@@ -665,13 +672,6 @@ function createDanmaku({
   const fallbackHistory = upstreamOrigin && fallbackDir
     ? createDanmakuHistory({ filePath: path.join(fallbackDir, 'mirror-danmaku-history.jsonl'), now }) : null;
   const offlineArchive = new Map();
-  if (fallbackHistory) {
-    try {
-      for (const { message } of fallbackHistory.list({ limit: MAX_ARCHIVE }).records.reverse()) offlineArchive.set(message.id, anonymousMirrorMessage(message));
-    } catch (error) {
-      console.error('Cannot load mirror danmaku history:', error.code || error.name);
-    }
-  }
   const offlineNonces = new Set();
   const knownMutes = new Map();
   const nonces = !upstreamOrigin || fallbackHistory ? createDanmakuNonces({ now }) : null;
@@ -716,6 +716,28 @@ function createDanmaku({
   }) : null;
   if (settings && scheduledFile) {
     scheduled = createScheduledDanmaku({ filePath: scheduledFile, now, isActive, publish, isBlocked: text => words.matches(text) });
+  }
+
+  const replayJournal = moderationHistory ?? fallbackHistory;
+  if (replayJournal) {
+    try {
+      const records = replayJournal.recentForReplay(fallbackHistory
+        ? { limit: MAX_ARCHIVE }
+        : { maxAge: HISTORY_WINDOW, limit: MAX_HISTORY });
+      // The journal also holds moderation notices, including ones created while the feed was closed.
+      const visible = records.filter(({ message, subject, deviceSubject }) =>
+        message.kind !== 'moderation' &&
+        !(subject && sendMuteStatus(subject).muted) &&
+        !(deviceSubject && deviceSubject !== subject && sendMuteStatus(deviceSubject).muted));
+      // Seed the snapshot directly so startup does not append to the journal or emit SSE events.
+      for (const record of visible) {
+        const { message } = record;
+        if (fallbackHistory) offlineArchive.set(message.id, anonymousMirrorMessage(message));
+        else history.set(message.id, record);
+      }
+    } catch (error) {
+      console.error('Cannot restore recent danmaku:', error.code || error.name);
+    }
   }
 
   function isActive(at) {
@@ -1393,11 +1415,12 @@ function createDanmaku({
     return Math.max(minIntervalSeconds, quotaWait(subject, time, perMinute));
   }
 
-  function makeMessage(text, time, { nickname, color, admin = false, staff, member, sponsor, avatar }) {
+  function makeMessage(text, time, { nickname, color, admin = false, staff, member, sponsor, avatar, groupTag }) {
     return {
       id: randomUUID(), text, createdAt: new Date(time).toISOString(),
       ...(admin ? { admin: true } : {}), ...appearance(nickname, color, admin, staff, member && sponsor),
       ...(member ? { member: true } : {}), ...(member && sponsor ? { sponsor: true } : {}), ...(avatar ? { avatar } : {}),
+      ...(isGroupTag(groupTag) ? { groupTag } : {}),
     };
   }
 
@@ -1414,7 +1437,7 @@ function createDanmaku({
     publish(message, undefined, time, archiveModerationText(action));
   }
 
-  function accept(text, quota, rawNickname, time, rateLimit) {
+  function accept(text, quota, rawNickname, time, rateLimit, groupTag) {
     const limit = limitPosting(quota, time, rateLimit);
     if (limit) return limit;
     const nickname = cleanDanmakuNickname(rawNickname);
@@ -1438,7 +1461,7 @@ function createDanmaku({
     const cooldown = recordSubmission(quota, time, rateLimit);
     if (blockedNickname) return nicknameRejected(cooldown);
     if (blocked) return { status: 422, error: BLOCKED, cooldown };
-    return { status: 201, message: makeMessage(text, time, { nickname }), cooldown };
+    return { status: 201, message: makeMessage(text, time, { nickname, groupTag }), cooldown };
   }
 
   function validateNickname(raw, { required = false } = {}) {
@@ -1466,7 +1489,7 @@ function createDanmaku({
     const rateLimit = (settings ?? fallbackSettings).rateLimit();
     const limit = limitPosting(quota, time, rateLimit, lastAttempt.get(quota)) ?? trackAttempt(quota, time);
     if (limit) return sendResult(res, limit);
-    const result = accept(submissionText(body), quota, fallbackHistory ? undefined : body.nickname, time, rateLimit);
+    const result = accept(submissionText(body), quota, fallbackHistory ? undefined : body.nickname, time, rateLimit, body.groupTag);
     if (fallbackHistory && result.status === 422) result.extra = { ...result.extra, anonymous: true };
     if (result.message) {
       if (fallbackHistory) {
@@ -1550,6 +1573,7 @@ function createDanmaku({
       if (res.destroyed) return;
       const nonce = body?.nonce;
       if (typeof nonce !== 'string' || !NONCE_FORMAT.test(nonce)) return sendResult(res, staleRequest());
+      submissionGroupTag(body);
       if (relay && !relay.isOffline()) {
         if (offlineNonces.has(nonce)) {
           nonces.consume(binding, nonce);
@@ -1598,6 +1622,7 @@ function createDanmaku({
       if (mute.muted) return reject(res, 403, MUTED, headers, { code: 'muted', expiresAt: mute.expiresAt, ...(mute.source && { source: mute.source }) });
     }
     const text = submissionText(body);
+    const groupTag = submissionGroupTag(body);
     const nickname = cleanDanmakuNickname(rawNickname);
     if (nickname === null || (nickname && words.matches(nickname))) return sendResult(res, nicknameRejected(), headers);
     if (words.matches(text)) return sendResult(res, { status: 422, error: BLOCKED }, headers);
@@ -1609,7 +1634,7 @@ function createDanmaku({
     const color = unlocked ? requestedColor : staffColors?.[0] ?? (sponsor ? 'gold' : undefined);
     const deviceMute = deviceSubject ? sendMuteStatus(deviceSubject) : null;
     if (deviceMute?.muted) return reject(res, 403, MUTED, headers, { code: 'muted', expiresAt: deviceMute.expiresAt, ...(deviceMute.source && { source: deviceMute.source }) });
-    const message = publishText(text, time, subject, { nickname, color, admin, staff, member, sponsor: member && sponsor, avatar: addPublicAvatar(avatar), deviceSubject });
+    const message = publishText(text, time, subject, { nickname, color, admin, staff, member, sponsor: member && sponsor, avatar: addPublicAvatar(avatar), deviceSubject, groupTag });
     return sendResult(res, { status: 201, message }, headers);
   }
 

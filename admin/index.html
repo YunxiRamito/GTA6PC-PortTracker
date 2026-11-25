@@ -5,8 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0c0d1a">
   <title>LOCAL CONSOLE 账户 · 控制台</title>
-  <meta name="port-tracker-public-origin" content="" />
   <link rel="stylesheet" href="/admin/admin.css">
+  <link rel="stylesheet" href="/admin/feedback.css">
+  <link rel="stylesheet" href="/admin/sponsors.css">
   <link rel="stylesheet" href="/assets/site-topbar.css" />
   <script defer src="/assets/navigation.js"></script>
   <script src="/admin/router.js" defer></script>
@@ -15,6 +16,8 @@
   <script src="/admin/account.js" defer></script>
   <script src="/admin/admin.js" defer></script>
   <script src="/admin/danmaku.js" defer></script>
+  <script src="/admin/feedback.js" defer></script>
+  <script src="/admin/sponsors.js" defer></script>
 <link rel="stylesheet" href="/assets/demo.css" />
 </head>
 <body data-admin-page="console">
@@ -31,7 +34,7 @@
         <a href="/about/" data-site-path="/about/">关于</a>
       </nav>
       <div class="nav-actions">
-      <button class="menu-toggle" id="menuToggle" type="button" aria-label="打开网站菜单" aria-haspopup="dialog" aria-controls="siteMenu" aria-expanded="false">
+        <button class="menu-toggle" id="menuToggle" type="button" aria-label="打开网站菜单" aria-haspopup="dialog" aria-controls="siteMenu" aria-expanded="false">
           <span class="menu-glyph" aria-hidden="true"><span></span><span></span></span>
         </button>
       </div>
@@ -194,11 +197,10 @@
         <header class="page-heading">
           <p class="eyebrow" data-shell-eyebrow>ACCOUNT / ACCESS</p>
           <h1 id="accounts-title" tabindex="-1" data-shell-title>账号管理</h1>
-          <p>查看账户并按职责分配角色。登录权限仍由服务器独立校验。</p>
+          <p data-shell-intro>查看账户并按职责分配角色。</p>
         </header>
         <section class="editor-panel account-panel" id="create-account-panel" aria-labelledby="create-account-title" hidden>
-          <h2 id="create-account-title">创建账户</h2>
-          <p class="section-intro">新账户首次登录时需要先设置密码。</p>
+          <h2 class="visually-hidden" id="create-account-title">新账号资料</h2>
           <form class="account-form" id="create-account-form" novalidate>
             <div class="field">
               <label for="create-account-username">用户名</label>
@@ -219,10 +221,10 @@
               </select>
             </div>
             <p class="account-status" id="create-account-status" data-tone="neutral" role="status" aria-live="polite"></p>
-            <button class="button primary" id="create-account-submit" type="submit">创建账户</button>
+            <button class="button primary" id="create-account-submit" type="submit">创建账号</button>
           </form>
         </section>
-        <section class="editor-panel account-panel" aria-labelledby="account-list-title">
+        <section class="editor-panel account-panel" id="account-list-panel" aria-labelledby="account-list-title" hidden>
           <div class="account-panel-heading">
             <div>
               <p class="eyebrow">ROLE / ASSIGNMENT</p>
@@ -267,7 +269,7 @@
         <p class="eyebrow" id="editorial-eyebrow" data-shell-eyebrow>CONTENT</p>
         <h1 id="editorial-title" tabindex="-1" data-shell-title>内容编辑</h1>
         <p id="editorial-intro"></p>
-        <p class="page-note">各分区共用一份草稿，切换分区不会丢失修改。点「保存全部」后一次写入。</p>
+        <p class="page-note">各分区共用一份草稿，切换分区会保留修改。点「保存全部」后按分区保存。</p>
       </header>
 
       <div class="toolbar" role="group" aria-label="编辑与保存">
@@ -310,7 +312,7 @@
         </section>
         <aside class="maintenance" aria-label="维护提示">
           <strong>一起核对四处内容</strong>
-          <p>新闻时间线、移植路线、工程档案和 社区公告。没有新证据时，保留原有内容。</p>
+          <p>新闻时间线、移植路线、工程档案和站公告。没有新证据时，保留原有内容。</p>
         </aside>
       </div>
 
@@ -324,6 +326,7 @@
             <li>遇到 <code>412</code>，重新读取最新内容，合并之后再用新 <code>ETag</code> 提交；不要直接重试旧稿。</li>
           </ol>
           <p class="hint">只编辑一个分区时，也可用 <code>GET</code> / <code>PUT /api/admin/content/{section}</code>（例如 <code>news</code>）。</p>
+          <p class="hint">私有仓库：<code>roadmap.privateRepositories</code>（最多 32 条）；<code>[]</code> 表示清空。</p>
         </div>
       </details>
       <noscript>内容编辑台需要 JavaScript 才能读取和保存内容。</noscript>
@@ -522,7 +525,202 @@
         </div>
         </div>
       </section>
+
+      <section id="feedback-view" data-shell-view aria-labelledby="feedback-title" hidden>
+        <header class="page-heading">
+          <p class="eyebrow" data-shell-eyebrow>COMMUNITY / FEEDBACK</p>
+          <h1 id="feedback-title" tabindex="-1" data-shell-title>反馈与通知</h1>
+          <p class="page-intro" data-shell-intro>查看和回复访客反馈。</p>
+        </header>
+      <div class="notice-banner feedback-session" id="feedback-session" data-tone="error" hidden>
+        <p role="alert">登录已过期。重新登录后可回到本页重试。</p>
+        <a href="/admin/login" target="_blank" rel="noopener">在新标签页重新登录</a>
+      </div>
+
+        <section class="panel feedback-panel" id="inbox" aria-labelledby="inbox-title">
+          <div class="feedback-panel-heading">
+            <div>
+              <h2 id="inbox-title">反馈收件箱</h2>
+              <p class="hint">最新反馈排在前面，时间为北京时间。</p>
+            </div>
+            <button type="button" class="button" id="inbox-refresh" disabled><svg class="icon" aria-hidden="true"><use href="/assets/ui/fluent.svg#arrow-clockwise"></use></svg>刷新反馈</button>
+          </div>
+          <p class="feedback feedback-status" id="inbox-status" role="status">正在读取反馈…</p>
+          <ol class="feedback-list" id="inbox-list" role="list" aria-label="反馈列表"></ol>
+          <button type="button" class="button feedback-more feedback-reveal" id="inbox-more" hidden>加载更多</button>
+        </section>
+      </section>
+      <section id="site-notices-view" data-shell-view aria-labelledby="site-notices-title" hidden>
+        <header class="page-heading">
+          <p class="eyebrow" data-shell-eyebrow>CONTENT / SITE NOTICES</p>
+          <h1 id="site-notices-title" tabindex="-1" data-shell-title>站点公告</h1>
+          <p class="page-intro" data-shell-intro>编辑首页页头和弹窗的公告，保存后立即生效。</p>
+        </header>
+      <div class="notice-banner feedback-session" id="site-notices-session" data-tone="error" hidden>
+        <p role="alert">登录已过期。重新登录后可回到本页重试。</p>
+        <a href="/admin/login" target="_blank" rel="noopener">在新标签页重新登录</a>
+      </div>
+
+        <section class="panel feedback-panel" id="notices" aria-labelledby="notices-title">
+          <div class="feedback-panel-heading">
+            <div>
+              <h2 id="notices-title">站点公告</h2>
+              <p class="hint">留空并保存即可隐藏对应公告。</p>
+            </div>
+          </div>
+          <form id="notices-form" method="post">
+            <fieldset class="feedback-notice-fields" id="notices-fields" aria-label="公告内容" disabled>
+              <div class="field">
+                <label for="notice-header">页头公告</label>
+                <textarea id="notice-header" name="header" rows="2" aria-describedby="notice-header-count"></textarea>
+                <p class="hint feedback-count" id="notice-header-count">0 / 1000 字符</p>
+              </div>
+              <div class="feedback-notice-link-fields">
+                <p class="hint" id="notice-link-hint">可为首页页头公告添加链接。可填写 HTTPS 网址、以 / 开头的站内路径或以 # 开头的页内锚点。清空地址即可移除链接。</p>
+                <div class="field">
+                  <label for="notice-link-url">链接地址</label>
+                  <input id="notice-link-url" name="headerLinkUrl" type="text" inputmode="url" autocomplete="off" spellcheck="false" aria-describedby="notice-link-hint">
+                </div>
+                <div class="field">
+                  <label for="notice-link-label">链接显示文字</label>
+                  <input id="notice-link-label" name="headerLinkLabel" type="text" autocomplete="off" aria-describedby="notice-link-label-hint">
+                  <p class="hint" id="notice-link-label-hint">填写链接地址后，显示文字最多 80 个字符。</p>
+                </div>
+              </div>
+              <div class="field">
+                <label for="notice-popup-title">弹窗标题（可选）</label>
+                <input id="notice-popup-title" name="popupTitle" type="text" autocomplete="off" aria-describedby="notice-popup-title-count">
+                <p class="hint feedback-count" id="notice-popup-title-count">0 / 80 字符</p>
+              </div>
+              <div class="field">
+                <label for="notice-popup">弹窗正文</label>
+                <textarea id="notice-popup" name="popup" rows="4" aria-describedby="notice-popup-count"></textarea>
+                <p class="hint feedback-count" id="notice-popup-count">0 / 1000 字符</p>
+              </div>
+              <button type="submit" class="button primary" id="notices-save" disabled>保存公告</button>
+            </fieldset>
+          </form>
+          <p class="feedback feedback-status" id="notices-status" role="status" tabindex="-1">正在读取公告…</p>
+          <button type="button" class="button feedback-reveal" id="notices-retry" hidden>重新读取公告</button>
+        </section>
+      </section>
+      <section id="sponsors-view" data-shell-view aria-labelledby="sponsors-title" hidden>
+      <header class="page-heading page-heading-actions">
+        <div class="page-heading-copy">
+          <p class="eyebrow">COMMUNITY / CREDITS</p>
+          <h1 id="sponsors-title" tabindex="-1" data-shell-title>鸣谢管理</h1>
+          <p class="page-intro">新增、修改和移除将在保存后公开生效。</p>
+        </div>
+        <a class="button quiet" href="/admin/sponsors/preview" target="_blank" rel="noopener noreferrer">打开公开鸣谢页<svg class="icon" aria-hidden="true"><use href="/assets/ui/fluent.svg#arrow-up-right"></use></svg><span class="visually-hidden">（新标签页）</span></a>
+      </header>
+
+      <section class="sponsors-toolbar panel" aria-label="鸣谢名单状态与操作">
+        <p class="sponsor-count" id="sponsor-count">名单读取中</p>
+        <div class="sponsors-toolbar-actions">
+          <button class="button" id="reload-sponsors" type="button" disabled>重新读取</button>
+          <button class="button primary" id="save-sponsors" type="button" disabled>保存全部更改</button>
+        </div>
+      </section>
+      <p class="sponsors-status" id="manager-status" role="status" aria-atomic="true" tabindex="-1">正在读取鸣谢名单…</p>
+
+      <div class="notice-banner" id="session-message" data-tone="error" hidden>
+        <p>登录已过期。请在新标签页登录，返回后可继续处理当前草稿。</p>
+        <a class="button" href="/admin/login" target="_blank" rel="noopener">前往登录<svg class="icon" aria-hidden="true"><use href="/assets/ui/fluent.svg#arrow-up-right"></use></svg><span class="visually-hidden">（新标签页）</span></a>
+      </div>
+      <div class="conflict-panel" id="conflict-panel" role="alert" hidden>
+        <p><strong>名单版本冲突。</strong>当前草稿仍保留。可先复制短句，再读取最新名单。重新读取成功后会替换当前草稿。</p>
+        <button class="button" id="conflict-reload" type="button">读取最新名单</button>
+      </div>
+
+      <div class="sponsors-workspace">
+        <section class="panel sponsor-search-panel" aria-labelledby="search-title">
+          <div class="panel-heading">
+            <h2 id="search-title">添加鸣谢者</h2>
+          </div>
+          <form id="account-search-form" class="field sponsor-search-field" role="search" aria-label="搜索账号" method="post">
+            <label for="account-search">搜索账号</label>
+            <div class="sponsor-search-controls">
+              <input id="account-search" type="search" maxlength="80" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="UID、昵称或用户名" aria-controls="account-results" disabled>
+              <button id="search-submit" class="button" type="submit" disabled>搜索</button>
+            </div>
+          </form>
+          <p class="sponsors-substatus" id="search-status" role="status" aria-atomic="true"></p>
+          <ul class="account-results" id="account-results" role="list" aria-label="账号搜索结果" aria-busy="false"></ul>
+        </section>
+
+        <section class="panel sponsor-list-panel" aria-labelledby="list-title">
+          <div class="panel-heading">
+            <h2 id="list-title">鸣谢名单</h2>
+          </div>
+          <p class="section-intro">公开页面会展示头像、昵称和短句。请将私人信息留在名单之外。</p>
+          <p class="empty-state" id="sponsor-empty" hidden>暂无鸣谢者。搜索账号后即可添加。</p>
+          <ul class="sponsor-list" id="sponsor-list" role="list" aria-label="鸣谢者名单" aria-busy="true"></ul>
+        </section>
+      </div>
+      </section>
     </main>
   </div>
+  <template id="feedback-card-template">
+    <li class="feedback-card" tabindex="-1">
+      <div class="feedback-card-heading">
+        <p class="feedback-meta">收到于 <time class="feedback-created"></time></p>
+        <span class="feedback-reply-state">待回复</span>
+      </div>
+      <p class="feedback-message"></p>
+      <div class="feedback-sent feedback-reveal" hidden>
+        <p class="feedback-meta"><strong>已发回复</strong> <time></time></p>
+        <p class="feedback-message"></p>
+      </div>
+      <div>
+        <details class="feedback-reply">
+          <summary>写回复</summary>
+          <form class="feedback-reply-form" method="post">
+            <div class="field">
+              <label>回复内容</label>
+              <textarea name="text" rows="3" required></textarea>
+              <p class="hint feedback-count">0 / 1000 字符</p>
+            </div>
+            <button type="submit" class="button primary" disabled>发送回复</button>
+          </form>
+        </details>
+        <p class="feedback-row-status" role="status"></p>
+      </div>
+    </li>
+  </template>
+  <template id="account-result-template">
+    <li class="account-result">
+      <div class="person-avatar" aria-hidden="true">
+        <span class="person-avatar-fallback"></span>
+        <img class="person-avatar-image" alt="" loading="lazy" decoding="async" hidden>
+      </div>
+      <div class="person-details">
+        <strong class="person-name" dir="auto"></strong>
+        <p class="person-meta"></p>
+      </div>
+      <button class="button add-account" type="button">添加</button>
+    </li>
+  </template>
+  <template id="sponsor-item-template">
+    <li class="sponsor-item">
+      <article class="sponsor-card">
+        <header class="sponsor-card-header">
+          <div class="person-avatar sponsor-avatar" aria-hidden="true">
+            <span class="person-avatar-fallback"></span>
+            <img class="person-avatar-image" alt="" loading="lazy" decoding="async" hidden>
+          </div>
+          <div class="person-details">
+            <h3 class="person-name" dir="auto"></h3>
+            <p class="person-meta"></p>
+          </div>
+          <button class="button danger remove-sponsor" type="button">移除</button>
+        </header>
+        <div class="field sponsor-message-field">
+          <label class="message-label">鸣谢短句 <span class="optional-label">（可留空）</span></label>
+          <textarea class="message-input" rows="2"></textarea>
+          <p class="message-count"></p>
+        </div>
+      </article>
+    </li>
+  </template>
 </body>
 </html>

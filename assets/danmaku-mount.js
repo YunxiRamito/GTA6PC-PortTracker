@@ -114,6 +114,24 @@
             </label>
           </div>
         </fieldset>
+        <div class="danmaku-appearance-field">
+          <div class="danmaku-appearance-label-row">
+            <label for="danmakuGroupTag">群标签</label>
+            <span class="danmaku-group-preview" aria-hidden="true"><span class="danmaku-group-tag" id="danmakuGroupPreview"></span></span>
+          </div>
+          <select id="danmakuGroupTag" name="groupTag" aria-describedby="danmakuGroupHint">
+            <option value="">不显示</option>
+            <option value="1">1群</option>
+            <option value="2">2群</option>
+            <option value="3">3群</option>
+            <option value="4">4群</option>
+            <option value="5">5群</option>
+            <option value="6">6群</option>
+            <option value="7">7群</option>
+            <option value="8">8群</option>
+          </select>
+          <p class="danmaku-appearance-hint" id="danmakuGroupHint">自选标签，不代表群成员身份。</p>
+        </div>
         <p class="danmaku-appearance-status" id="danmakuAppearanceStatus" role="status" aria-live="polite" aria-atomic="true"></p>
         <button class="danmaku-appearance-save" type="submit">保存并关闭</button>
       </form>

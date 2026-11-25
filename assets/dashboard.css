@@ -419,6 +419,7 @@
   overflow-wrap: anywhere;
   transition: border-color 220ms var(--tracker-ease);
 }
+#dashboard .card[data-project-anchor] { scroll-margin-block-start: 88px; }
 
 #dashboard .card:focus-within {
   border-color: var(--tracker-control-line);
@@ -1161,9 +1162,9 @@
   grid-auto-flow: column;
   grid-auto-columns: minmax(0, 1fr);
   column-gap: 2px;
-  block-size: 4px;
+  block-size: 8px;
 }
-#dashboard .card-gameplay-segment { display: block; border-radius: 2px; background: rgba(255, 228, 214, .14); }
+#dashboard .card-gameplay-segment { display: block; border-radius: 4px; background: rgba(255, 228, 214, .14); }
 #dashboard .card-gameplay-segment.is-completed { background: #a0ddc9; }
 #dashboard .card-gameplay-segment.is-reported { background: repeating-linear-gradient(135deg, #f2c798 0 4px, rgba(242, 199, 152, .28) 4px 8px); }
 #dashboard .card-gameplay-segment.is-blocked { background: repeating-linear-gradient(90deg, #e09ba9 0 6px, transparent 6px 10px); }
@@ -1215,16 +1216,37 @@
 #dashboard .card-port-score-num small { font-size: .8em; }
 #dashboard .card-port-score-milestone { color: var(--tracker-muted); font: 600 .78rem/1.3 var(--tracker-mono); }
 #dashboard .card-port-track { background: rgba(255,228,214,.14); margin-block-end: 2px; }
-#dashboard .card-port-fill { position: absolute; inset-block: 0; inset-inline-start: 0; border-radius: 4px; background: linear-gradient(90deg, #f9a8c9, #ffb4a2 50%, #ffd39a); width: var(--w, 0%); }
+#dashboard .card-port-fill { position: absolute; inset-block: 0; inset-inline-start: 0; background: linear-gradient(90deg, #f9a8c9, #ffb4a2 50%, #ffd39a); width: var(--w, 0%); }
 #dashboard .card-port-ticks { position: absolute; inset: 0; }
 #dashboard .card-port-ticks i { position: absolute; inset-block: 0; transform: translateX(-50%); width: 1px; background: rgba(0,0,0,.3); }
+#dashboard .card-port-factors {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 5px;
+  margin-block: 8px 2px;
+}
+#dashboard .card-port-factor {
+  min-inline-size: 0;
+  padding: 5px 6px;
+  border: 1px solid rgba(255,228,214,.1);
+  border-radius: 4px;
+  background: rgba(255,228,214,.035);
+}
+#dashboard .card-port-factor span,
+#dashboard .card-port-factor b {
+  display: block;
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+#dashboard .card-port-factor span { color: var(--tracker-muted); font: 600 .62rem/1.25 var(--tracker-mono); }
+#dashboard .card-port-factor b { margin-block-start: 2px; color: var(--tracker-paper); font-size: .7rem; line-height: 1.3; }
 #dashboard .card-port-details { margin-block-start: 6px; border: 0; color: var(--tracker-muted); font-size: .78rem; }
 #dashboard .card-port-details summary { cursor: pointer; color: var(--tracker-accent); font-size: .75rem; padding-block: 4px; }
 #dashboard .card-port-gw-rows { display: grid; gap: 5px; margin-block-end: 8px; }
 #dashboard .card-port-gw-row { display: grid; grid-template-columns: 1fr auto; row-gap: 2px; }
 #dashboard .card-port-gw-row span { font-size: .73rem; color: var(--tracker-paper); }
 #dashboard .card-port-gw-row b { font-size: .73rem; text-align: end; font-variant-numeric: tabular-nums; }
-#dashboard .card-port-gw-bar { grid-column: 1 / -1; block-size: 3px; border-radius: 2px; background: rgba(255,228,214,.14); }
+#dashboard .card-port-gw-bar { grid-column: 1 / -1; block-size: 5px; border-radius: 3px; background: rgba(255,228,214,.14); }
 #dashboard .card-port-gw-bar i { position: relative; display: block; block-size: 100%; width: var(--w, 0%); border-radius: 2px; background: #a0ddc9; }
 #dashboard .card-port-details:not([open]) .card-port-gw-rows { display: none; }
 #dashboard .card-port-works, #dashboard .card-port-blocking { margin-block-end: 6px; }
@@ -1236,11 +1258,15 @@
 #dashboard .card-port-verified { color: #a0ddc9; border: 1px solid rgba(160,221,201,.35); }
 #dashboard .card-port-self { color: #f2c798; border: 1px solid rgba(242,199,152,.35); }
 #dashboard .card-port-unverified { color: var(--tracker-muted); border: 1px solid var(--tracker-line); }
+@media (max-width: 560px) {
+  #dashboard .card-port-factors { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 
 #dashboard .card-external {
   border-inline-start: 2px solid var(--tracker-accent);
   background-color: var(--tracker-raised);
 }
+#dashboard .card-private-repository { border-inline-start-color: #a0ddc9; }
 #dashboard .card-external-label {
   margin-block-end: .35rem;
   color: var(--tracker-accent);

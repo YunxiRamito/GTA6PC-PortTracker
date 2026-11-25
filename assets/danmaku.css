@@ -954,6 +954,50 @@ html.menu-open .danmaku-layer { visibility: hidden; }
 #danmakuNickname::placeholder { color: rgba(207, 195, 233, .64); font-weight: 450; }
 #danmakuNickname:focus-visible { border-color: rgba(244, 161, 192, .72); background: rgba(10, 8, 22, .78); box-shadow: 0 0 0 2px rgba(244, 161, 192, .16); }
 .danmaku-appearance-hint { margin: 0; color: var(--muted, #cfc3e9); font-size: .62rem; line-height: 1.4; overflow-wrap: anywhere; }
+.danmaku-appearance select {
+  box-sizing: border-box;
+  inline-size: 100%;
+  min-inline-size: 0;
+  min-block-size: 2rem;
+  padding: .3rem .5rem;
+  border: 1px solid rgba(244, 161, 192, .28);
+  border-radius: 6px;
+  color: var(--paper, #fff1e3);
+  background: #241b30;
+  color-scheme: dark;
+  font: inherit;
+  font-size: .75rem;
+  transition: border-color 180ms cubic-bezier(.2,.75,.3,1);
+}
+.danmaku-appearance select:hover { border-color: rgba(244, 161, 192, .65); }
+.danmaku-appearance select:focus-visible { outline: 2px solid var(--accent, #ffb4a2); outline-offset: 2px; }
+.danmaku-group-tag[data-group-tag="1"] { --danmaku-group-color: #c092f5; }
+.danmaku-group-tag[data-group-tag="2"] { --danmaku-group-color: #6e9ff5; }
+.danmaku-group-tag[data-group-tag="3"] { --danmaku-group-color: #81f5cc; }
+.danmaku-group-tag[data-group-tag="4"] { --danmaku-group-color: #f5be6d; }
+.danmaku-group-tag[data-group-tag="5"] { --danmaku-group-color: #f57072; }
+.danmaku-group-tag[data-group-tag="6"] { --danmaku-group-color: #f585b9; }
+.danmaku-group-tag[data-group-tag="7"] { --danmaku-group-color: #a4baf5; }
+.danmaku-group-tag[data-group-tag="8"] { --danmaku-group-color: #f58966; }
+.danmaku-group-tag {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  padding: .05rem .28rem;
+  border: 1px solid color-mix(in srgb, var(--danmaku-group-color, #cfc3e9) 55%, transparent);
+  border-radius: .35rem;
+  color: var(--danmaku-group-color, #cfc3e9);
+  background: #1e1828;
+  font-weight: 700;
+  font-size: .68rem;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+.danmaku-group-preview { display: flex; align-items: center; min-block-size: 1.2rem; }
+.danmaku-group-preview .danmaku-group-tag {
+  transition: opacity 180ms cubic-bezier(.2,.75,.3,1), transform 180ms cubic-bezier(.2,.75,.3,1), color 180ms ease, border-color 180ms ease;
+}
+.danmaku-group-preview .danmaku-group-tag:not([data-group-tag]) { opacity: 0; transform: translateY(2px); }
 .danmaku-color-field { min-inline-size: 0; margin: 0; padding: 0; border: 0; }
 .danmaku-color-field legend { margin-block-end: .3rem; padding: 0; }
 .danmaku-color-options { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .24rem; }
@@ -1027,6 +1071,7 @@ html.menu-open .danmaku-layer { visibility: hidden; }
 #danmakuOptions[hidden], #danmakuAppearance[hidden] { display: none; }
 
 .danmaku-message-head { display: flex; min-inline-size: 0; align-items: center; gap: .32rem; }
+.danmaku-history-meta:has(.danmaku-group-tag) { flex-wrap: wrap; row-gap: .2rem; }
 .danmaku-chip .danmaku-message-head { font-size: .74em; line-height: 1.1; }
 .danmaku-message-avatar {
   position: relative;

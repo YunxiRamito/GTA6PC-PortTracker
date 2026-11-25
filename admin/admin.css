@@ -483,6 +483,11 @@ input[type='checkbox']:focus-visible { outline: 2px solid var(--focus); outline-
 .recovery-body > p { margin-bottom: var(--space-3); }
 .port-progress { animation: appear 220ms var(--ease) both; }
 .port-progress .section-content { display: grid; gap: var(--space-3); padding-top: var(--space-2); }
+.private-repositories { min-width: 0; }
+.private-repositories .list-header { flex-wrap: wrap; }
+.private-repositories .entry-body { grid-template-columns: minmax(0, 1fr); }
+.private-repository-progress { min-width: 0; border-top: 1px solid var(--line); }
+.private-repository-progress > summary { padding-block: var(--space-2); font-size: var(--text-sm); font-weight: 700; }
 .link-editor, .link-editor-rows { display: grid; gap: var(--space-2); }
 .link-editor-heading, .group-avatar-preview { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
 .link-editor-heading { justify-content: space-between; }
@@ -600,6 +605,126 @@ details[open]::details-content { opacity: 1; overflow: visible; }
 /* 原生文件框只保留给读屏和键盘，视觉上由标签按钮代替；!important 压过通用输入框宽度。 */
 .avatar-file-picker input[type='file'] { position: absolute; width: 1px !important; height: 1px; min-height: 0 !important; padding: 0 !important; border: 0 !important; overflow: hidden; clip: rect(0, 0, 0, 0); clip-path: inset(50%); white-space: nowrap; }
 .avatar-file-picker:focus-within .avatar-file-button { outline: 2px solid var(--focus); outline-offset: 3px; }
+
+/* 个人资料的裁切工作区 */
+.avatar-profile-editor {
+  container: avatar-editor / inline-size;
+  opacity: 1;
+  transition: opacity var(--fast) var(--ease), display var(--fast) allow-discrete;
+}
+.avatar-profile-editor[hidden] { opacity: 0; }
+@starting-style { .avatar-profile-editor:not([hidden]) { opacity: 0; } }
+.avatar-crop-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 22rem);
+  align-items: center;
+  gap: var(--space-3) var(--space-5);
+}
+.avatar-crop-stage {
+  min-width: 0;
+  padding: 1.375rem;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface-1);
+}
+.avatar-crop-board { position: relative; }
+.avatar-crop-source { display: block; width: 100%; height: auto; }
+.avatar-crop-frame {
+  position: absolute;
+  top: var(--avatar-frame-y);
+  left: var(--avatar-frame-x);
+  width: var(--avatar-frame-size);
+  height: var(--avatar-frame-size);
+  outline: 1px solid var(--text);
+  outline-offset: -1px;
+  box-shadow: 0 0 0 32rem #070712a6;
+  scroll-margin-top: var(--toolbar-offset);
+  touch-action: none;
+  user-select: none;
+  cursor: grab;
+  transition: outline-color var(--fast) var(--ease), outline-offset var(--fast) var(--ease);
+}
+.avatar-crop-frame.is-dragging { cursor: grabbing; }
+.avatar-crop-frame:is(:focus-visible, .is-dragging) { outline: 2px solid var(--focus); outline-offset: 1px; }
+.account-fields:disabled .avatar-crop-frame { pointer-events: none; }
+.avatar-crop-handle {
+  position: absolute;
+  width: 1.625rem;
+  height: 1.625rem;
+  /* Most of each hit area sits outside the crop, keeping the center draggable at high zoom. */
+  --avatar-handle-inset: calc(100% - min(.375rem, 20%));
+  --avatar-handle-edge: .75rem;
+}
+.avatar-crop-handle::before {
+  position: absolute;
+  width: var(--avatar-handle-edge);
+  height: var(--avatar-handle-edge);
+  border: 1px solid var(--surface-well);
+  border-radius: .125rem;
+  background: var(--text);
+  box-shadow: 0 0 0 1px #0b0c184d;
+  content: '';
+  transition: background-color var(--fast) var(--ease);
+}
+.avatar-crop-handle[data-corner^='n'] { bottom: var(--avatar-handle-inset); }
+.avatar-crop-handle[data-corner^='s'] { top: var(--avatar-handle-inset); }
+.avatar-crop-handle[data-corner$='w'] { right: var(--avatar-handle-inset); }
+.avatar-crop-handle[data-corner$='e'] { left: var(--avatar-handle-inset); }
+.avatar-crop-handle[data-corner^='n']::before { bottom: 0; }
+.avatar-crop-handle[data-corner^='s']::before { top: 0; }
+.avatar-crop-handle[data-corner$='w']::before { right: 0; }
+.avatar-crop-handle[data-corner$='e']::before { left: 0; }
+.avatar-crop-handle:is([data-corner='nw'], [data-corner='se']) { cursor: nwse-resize; }
+.avatar-crop-handle:is([data-corner='ne'], [data-corner='sw']) { cursor: nesw-resize; }
+.avatar-crop-frame:is(:focus-visible, .is-dragging) .avatar-crop-handle::before { background: var(--focus); }
+@media (hover: hover) {
+  .avatar-crop-handle:hover::before { background: var(--accent); }
+}
+.avatar-profile-preview {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  margin: 0;
+  color: var(--muted);
+  text-align: center;
+  font-size: var(--text-xs);
+}
+.avatar-profile-preview .avatar-crop-canvas {
+  width: min(100%, 7rem);
+  border: 2px solid var(--line-strong);
+  border-radius: 50%;
+  box-shadow: 0 0 0 .25rem var(--surface-2);
+  touch-action: auto;
+  cursor: default;
+}
+.avatar-crop-hint { margin-top: var(--space-2); }
+.profile-avatar-field .avatar-actions .button { flex: 0 1 auto; }
+.avatar-crop-fine {
+  grid-column: 1 / -1;
+  width: min(100%, 22rem);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--muted);
+  background: var(--surface-1);
+  font-size: var(--text-sm);
+  transition: border-color var(--fast) var(--ease);
+}
+.avatar-crop-fine:is([open], :focus-within) { border-color: var(--line-strong); }
+.avatar-crop-ranges {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  padding-top: var(--space-2);
+}
+.avatar-crop-ranges input[type='range']:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+@container avatar-editor (min-width: 24rem) {
+  .avatar-crop-workspace { grid-template-columns: minmax(0, 22rem) minmax(7.5rem, 9rem); }
+  .avatar-profile-preview { border-inline-start: 1px solid var(--line); padding-inline-start: var(--space-4); }
+}
 
 /* 表格 */
 .account-table-wrap { max-width: 100%; overflow: auto; border: 1px solid var(--line); border-radius: var(--radius-lg); overscroll-behavior-inline: contain; }

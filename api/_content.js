@@ -9,8 +9,9 @@ const { createFixtures } = require('../fixtures/demo');
 const SECTIONS = ['home', 'countdown', 'roadmap', 'announcements', 'downloads', 'news', 'projects', 'community'];
 const PUBLIC_SECTIONS = ['home', 'countdown', 'roadmap', 'announcements', 'downloads', 'community'];
 const RETIRED_ROADMAP_FIELDS = new Set(['currentStep', 'note', 'steps']);
-const PRIVATE_REPOSITORY_LIMIT = 160;
-const PRIVATE_REPOSITORY_FIELDS = new Set(['id', 'title', 'summary', 'sourceLabel', 'sourceUrl', 'portProgress']);
+const BUILD_FIELDS = ['title', 'summary', 'sourceLabel', 'sourceUrl', 'portProgress'];
+const PRIVATE_REPOSITORY_FIELDS = new Set(['id', ...BUILD_FIELDS]);
+const COMMUNITY_BUILD_FIELDS = new Set(BUILD_FIELDS);
 const TYPES = {
   runner: { label: '运行与适配', order: 1 }, tool: { label: '工具', order: 2 },
   resource: { label: '资料', order: 3 }, adjacent: { label: '其他游戏参考', order: 4 },
@@ -36,8 +37,6 @@ const GAMEPLAY_ID_RULE = '最多 48 个字符，使用小写英文字母、数�
 function validGameplayId(id) {
   return typeof id === 'string' && id.length <= 48 && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id);
 }
-const WEBP_PREFIX = 'data:image/webp;base64,';
-const MAX_AVATAR_BYTES = 24 * 1024;
 
 function validDate(value, withTime = false) {
   const match = typeof value === 'string' && /^(\d{4}-\d{2}-\d{2})(?:T(\d{2}:\d{2})(?::\d{2}(?:\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2}))?$/.exec(value);
@@ -58,16 +57,6 @@ function validUrl(value, kind = 'https') {
     const url = new URL(value);
     return url.protocol === 'https:' && !url.username && !url.password;
   } catch { return false; }
-}
-
-function validAvatar(value) {
-  if (typeof value !== 'string' || !value.startsWith(WEBP_PREFIX)) return false;
-  const base64 = value.slice(WEBP_PREFIX.length);
-  if (base64.length > 4 * Math.ceil(MAX_AVATAR_BYTES / 3) || !/^[a-z\d+/]+={0,2}$/i.test(base64)) return false;
-  const image = Buffer.from(base64, 'base64');
-  return image.length >= 20 && image.length <= MAX_AVATAR_BYTES && image.toString('base64') === base64 &&
-    image.toString('latin1', 0, 4) === 'RIFF' && image.readUInt32LE(4) === image.length - 8 &&
-    image.toString('latin1', 8, 12) === 'WEBP' && ['VP8 ', 'VP8L', 'VP8X'].includes(image.toString('latin1', 12, 16));
 }
 
 function normalizeNewsId(value) {
@@ -97,6 +86,14 @@ function validateContent(content) {
       else check(false, key, '需要对象');
     });
   }
+  function validateBuild(build, loc, fields) {
+    for (const key of Object.keys(build)) check(fields.has(key), `${loc}.${key}`, '不是支持字段');
+    for (const [field, max] of [['title', 120], ['summary', 800], ['sourceLabel', 80]]) {
+      check(validPlainText(build[field], max), loc + '.' + field, '需要 1–' + max + ' 个字符的纯文本');
+    }
+    link(build.sourceUrl, `${loc}.sourceUrl`);
+    validatePortProgress(build.portProgress, `${loc}.portProgress`);
+  }
   function validatePortProgress(pp, kpp) {
     check(object(pp), kpp, '需要对象');
     if (object(pp)) {
@@ -116,10 +113,12 @@ function validateContent(content) {
       if (pp.gta !== undefined) {
         check(object(pp.gta), `${kpp}.gta`, '需要对象');
         if (object(pp.gta)) {
-          const allowedGtaKeys = new Set(['loads', 'boots', 'menu', 'ingame', 'fps', 'stability']);
+          const stages = ['loads', 'boots', 'menu', 'ingame'];
+          const allowedGtaKeys = new Set([...stages, 'fps', 'stability']);
           for (const uk of Object.keys(pp.gta)) check(allowedGtaKeys.has(uk), `${kpp}.gta.${uk}`, '不允许的字段');
-          for (const lk of ['loads', 'boots', 'menu', 'ingame'])
+          for (const lk of stages)
             if (pp.gta[lk] !== undefined) check(validFraction(pp.gta[lk]), `${kpp}.gta.${lk}`, '需要 0–1 之间的数字');
+
           if (pp.gta.fps !== undefined)
             check(typeof pp.gta.fps === 'number' && Number.isFinite(pp.gta.fps) && pp.gta.fps >= 0 && pp.gta.fps <= 240, `${kpp}.gta.fps`, '需要 0–240 之间的数字');
           if (pp.gta.stability !== undefined)
@@ -185,32 +184,17 @@ function validateContent(content) {
       const at = 'roadmap.communityBuild';
       const build = roadmap.communityBuild;
       check(object(build), at, '需要对象');
-      if (object(build)) {
-        const allowed = new Set(['title', 'summary', 'sourceLabel', 'sourceUrl', 'portProgress']);
-        for (const key of Object.keys(build)) check(allowed.has(key), `${at}.${key}`, '不是支持字段');
-        required(build.title, `${at}.title`, 120);
-        required(build.summary, `${at}.summary`, 800);
-        required(build.sourceLabel, `${at}.sourceLabel`, 80);
-        link(build.sourceUrl, `${at}.sourceUrl`);
-        validatePortProgress(build.portProgress, `${at}.portProgress`);
-      }
+      if (object(build)) validateBuild(build, at, COMMUNITY_BUILD_FIELDS);
     }
     if (roadmap.privateRepositories !== undefined) {
       const ids = new Set();
-      items(roadmap.privateRepositories, 'roadmap.privateRepositories', PRIVATE_REPOSITORY_LIMIT, (entry, at) => {
-        for (const key of Object.keys(entry)) check(PRIVATE_REPOSITORY_FIELDS.has(key), `${at}.${key}`, '不是支持字段');
-        const validId = validGameplayId(entry.id);
-        check(validId, `${at}.id`, GAMEPLAY_ID_RULE);
-        if (validId) {
-          check(!ids.has(entry.id), `${at}.id`, '标识不能重复');
-          ids.add(entry.id);
+      items(roadmap.privateRepositories, 'roadmap.privateRepositories', 160, (build, loc) => {
+        if (!validGameplayId(build.id)) check(false, `${loc}.id`, GAMEPLAY_ID_RULE);
+        else {
+          check(!ids.has(build.id), `${loc}.id`, '私有仓库 ID 不得重复');
+          ids.add(build.id);
         }
-        for (const [field, max] of [['title', 120], ['summary', 800], ['sourceLabel', 80]]) {
-          check(validPlainText(entry[field], max), `${at}.${field}`, `需要 1–${max} 个字符的纯文本`);
-        }
-        check(typeof entry.sourceUrl === 'string' && /^(?:https:\/\/|#)/i.test(entry.sourceUrl) && validUrl(entry.sourceUrl),
-          `${at}.sourceUrl`, '需要可公开分享的 HTTPS 链接或页内锚点');
-        validatePortProgress(entry.portProgress, `${at}.portProgress`);
+        validateBuild(build, loc, PRIVATE_REPOSITORY_FIELDS);
       });
     }
     if (roadmap.externalProgress !== undefined) {
@@ -328,17 +312,11 @@ function validateContent(content) {
     if (p.logo) check(typeof p.logo === 'string' && /^\/assets\/logos\/[a-z\d_.-]+\.(?:png|jpe?g|webp)$/i.test(p.logo), `${k}.logo`, '需要本站项目标识路径');
     if (p.tags !== undefined) check(Array.isArray(p.tags) && p.tags.length <= 40 && p.tags.every(tag => text(tag, 95)), `${k}.tags`, '需要不超过 40 个文本标签');
   });
-  if (object(community)) {
-    const groups = new Set();
-    items(community.groups, 'community.groups', 12, (p, k) => {
-      required(p.name, `${k}.name`, 40);
-      check(typeof p.number === 'string' && /^\d{5,15}$/.test(p.number), `${k}.number`, '需要 5–15 位群号');
-      check(!groups.has(p.number), `${k}.number`, '群号不能重复'); groups.add(p.number);
-      check(typeof p.full === 'boolean', `${k}.full`, '需要 true 或 false');
-      link(p.url, k + '.url', 'https');
-      if (p.avatar !== undefined) check(validAvatar(p.avatar), k + '.avatar', '请上传不超过 24 KiB 的 WebP 图片');
-    });
-  } else check(false, 'community', '需要对象');
+  check(
+    object(community) && Object.keys(community).length === 1 && Object.hasOwn(community, 'groups') &&
+      Array.isArray(community.groups) && community.groups.length === 0,
+    'community.groups', '演示版必须使用空列表',
+  );
   return errors;
 }
 
@@ -366,6 +344,7 @@ function withNewsIds(content) {
 
 function projectPublicContent(content) {
   const result = Object.fromEntries(PUBLIC_SECTIONS.map(key => [key, content[key]]));
+  result.community = { groups: [] };
   const { newsIds, autoNewsCount = 2, ...home } = content.home;
   let selected;
   if (newsIds === undefined) {
@@ -380,15 +359,15 @@ function projectPublicContent(content) {
 
 function projectPrivateRepositories(roadmap) {
   return (roadmap?.privateRepositories ?? []).map(({ id, title, summary, sourceLabel, sourceUrl, portProgress }) => ({
-    id: `private-repo-${id}`, title, summary, sourceLabel, sourceUrl, portProgress,
+    id: 'private-repo-' + id, title, summary, sourceLabel, sourceUrl, portProgress,
   }));
 }
 
-function preserveRetiredRoadmapFields(saved, proposed) {
-  // Keep old roadmap data available to older readers during a rollback.
+function mergeCompatibleRoadmap(saved, proposed) {
   const fields = new Map(Object.entries(saved));
   for (const field of fields.keys()) {
-    if (!RETIRED_ROADMAP_FIELDS.has(field) && !Object.hasOwn(proposed, field)) fields.delete(field);
+    // Omission by an older editor is not a request to clear the private list.
+    if (!RETIRED_ROADMAP_FIELDS.has(field) && field !== 'privateRepositories' && !Object.hasOwn(proposed, field)) fields.delete(field);
   }
   for (const [field, value] of Object.entries(proposed)) {
     if (!RETIRED_ROADMAP_FIELDS.has(field)) fields.set(field, value);
@@ -457,7 +436,7 @@ function createContentStore({
       const details = validateContent(candidate);
       if (details.length) throw new ContentError(422, '有些内容未通过检查', details);
       const compatible = candidate.roadmap === content.roadmap ? candidate : {
-        ...candidate, roadmap: preserveRetiredRoadmapFields(content.roadmap, candidate.roadmap),
+        ...candidate, roadmap: mergeCompatibleRoadmap(content.roadmap, candidate.roadmap),
       };
       const next = withCountdownDefault(withNewsIds(compatible), content.countdown.enabled);
       const nextRevision = revision(next);

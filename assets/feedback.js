@@ -211,7 +211,8 @@
     const content = document.createElement('p');
     content.className = 'feedback-notice-copy';
     content.textContent = popup.text;
-    showDialog('网站通知', content, '知道了');
+    const title = typeof popup.title === 'string' && popup.title.trim() ? popup.title : '网站通知';
+    showDialog(title, content, '知道了');
     try { window.localStorage.setItem(key, '1'); } catch { /* Dedupe is unavailable without storage. */ }
   }
 

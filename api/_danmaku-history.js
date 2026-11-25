@@ -17,6 +17,8 @@ const SUBJECT = /^[a-f\d]{64}$/;
 const AVATAR = /^[a-f\d]{32}$/;
 const COLORS = new Set(['default', 'mint', 'sky', 'rose', 'lemon', 'admin-teal', 'moderator-teal', 'hatsune-green', 'owner-red', 'gold', 'orange']);
 const STAFF = new Set(['owner', 'admin', 'moderator']);
+const isGroupTag = value => Number.isInteger(value) && value >= 1 && value <= 8;
+const MESSAGE_FIELDS = ['kind', 'admin', 'nickname', 'color', 'staff', 'member', 'sponsor', 'avatar', 'likes', 'groupTag'];
 const invalid = () => new ContentError(400, '弹幕历史记录或分页参数有误，请刷新后重试');
 const unavailable = () => new ContentError(503, '弹幕历史暂时不可用');
 const exactKeys = (value, keys) => value && typeof value === 'object' && !Array.isArray(value) &&
@@ -50,14 +52,15 @@ function normalize(record) {
       (message.member !== undefined && message.member !== true) ||
       (message.sponsor !== undefined && message.sponsor !== true) ||
       (message.sponsor === true && message.member !== true) ||
+      (message.groupTag !== undefined && !isGroupTag(message.groupTag)) ||
       (message.kind !== undefined && message.kind !== 'moderation')) throw invalid();
 
   const cleanMessage = {
     id: message.id, text: message.text, createdAt: message.createdAt,
-    ...Object.fromEntries(['kind', 'admin', 'nickname', 'color', 'staff', 'member', 'sponsor', 'avatar', 'likes']
+    ...Object.fromEntries(MESSAGE_FIELDS
       .filter(key => message[key] !== undefined).map(key => [key, message[key]])),
   };
-  if (cleanMessage.kind === 'moderation' && (cleanMessage.admin || cleanMessage.member || cleanMessage.staff)) throw invalid();
+  if (cleanMessage.kind === 'moderation' && (cleanMessage.admin || cleanMessage.member || cleanMessage.staff || cleanMessage.groupTag)) throw invalid();
   return {
     message: cleanMessage, receivedAt: record.receivedAt,
     ...(record.subject === undefined ? {} : { subject: record.subject }),
@@ -151,7 +154,7 @@ function createDanmakuHistory({ filePath, now = Date.now } = {}) {
     for (const raw of lines) {
       const entry = JSON.parse(raw);
       if (entry?.op === 'add' && exactKeys(entry, ['op', 'record']) && exactKeys(entry.record, ['message', 'receivedAt', 'subject', 'deviceSubject', 'ip']) &&
-          exactKeys(entry.record.message, ['id', 'text', 'createdAt', 'kind', 'admin', 'nickname', 'color', 'staff', 'member', 'sponsor', 'avatar', 'likes'])) {
+          exactKeys(entry.record.message, ['id', 'text', 'createdAt', ...MESSAGE_FIELDS])) {
         const record = normalize(entry.record);
         if (records.has(record.message.id) || records.size >= MAX_RECORDS) throw new Error('Invalid history entry');
         records.set(record.message.id, record);
@@ -260,6 +263,22 @@ function createDanmakuHistory({ filePath, now = Date.now } = {}) {
     });
   }
 
+  // Internal startup snapshot in journal order; never return source IPs to the replay buffer.
+  function recentForReplay({ maxAge = RETENTION, limit }) {
+    prune();
+    if (!Number.isSafeInteger(maxAge) || maxAge < 1 || maxAge > RETENTION ||
+        !Number.isSafeInteger(limit) || limit < 1 || limit > MAX_RECORDS) throw invalid();
+    const current = time();
+    const cutoff = current - maxAge;
+    const recent = [];
+    for (const record of records.values()) {
+      if (record.receivedAt > cutoff && record.receivedAt <= current) recent.push(record);
+    }
+    return recent.slice(-limit).map(record => ({
+      ...publicRecord(record), subject: record.subject, deviceSubject: record.deviceSubject,
+    }));
+  }
+
   function getRecord(id) {
     prune();
     if (typeof id !== 'string' || !UUID.test(id)) throw invalid();
@@ -356,7 +375,7 @@ function createDanmakuHistory({ filePath, now = Date.now } = {}) {
     return job;
   }
 
-  return { add, get, getForModeration, findBySubjects, remove, list, flush, purgeExpired, close };
+  return { add, recentForReplay, get, getForModeration, findBySubjects, remove, list, flush, purgeExpired, close };
 }
 
-module.exports = { createDanmakuHistory, RETENTION_DAYS };
+module.exports = { createDanmakuHistory, RETENTION_DAYS, isGroupTag };
