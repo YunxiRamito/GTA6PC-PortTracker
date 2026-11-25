@@ -16,6 +16,7 @@
   <script src="/admin/account.js" defer></script>
   <script src="/admin/admin.js" defer></script>
   <script src="/admin/danmaku.js" defer></script>
+  <script src="/admin/rank-tags.js" defer></script>
   <script src="/admin/feedback.js" defer></script>
   <script src="/admin/sponsors.js" defer></script>
 <link rel="stylesheet" href="/assets/demo.css" />
@@ -524,6 +525,64 @@
           <ul class="danmaku-list danmaku-word-list" id="danmaku-words" role="list" aria-label="词库搜索结果"></ul>
         </div>
         </div>
+      </section>
+
+      <section id="rank-tags-view" data-shell-view aria-labelledby="rank-tags-title" hidden>
+        <header class="page-heading">
+          <p class="eyebrow" data-shell-eyebrow>DANMAKU / RANK TAGS</p>
+          <h1 id="rank-tags-title" tabindex="-1" data-shell-title>标签管理</h1>
+          <p class="page-intro">展示标签只影响弹幕显示。发放或撤下成功后立即生效。</p>
+        </header>
+        <section class="panel rank-tags-panel" aria-labelledby="rank-tags-results-title">
+          <div class="rank-tags-search-area">
+            <form class="rank-tags-search" id="rank-tags-search" role="search" aria-label="查找账号">
+              <div class="field">
+                <label for="rank-tags-query">UID、昵称或用户名</label>
+                <input type="search" id="rank-tags-query" name="q" autocomplete="off" spellcheck="false" aria-describedby="rank-tags-search-help">
+              </div>
+              <div class="rank-tags-actions">
+                <button type="submit" class="button primary" id="rank-tags-submit" aria-controls="rank-tags-list">
+                  <svg class="icon" aria-hidden="true"><use href="/assets/ui/fluent.svg#search"></use></svg>搜索
+                </button>
+                <button type="button" class="button quiet" id="rank-tags-clear" aria-controls="rank-tags-list">清空</button>
+              </div>
+            </form>
+            <p class="hint" id="rank-tags-search-help">留空时显示已手动发放标签的账号。</p>
+          </div>
+          <div class="rank-tags-results-heading">
+            <h2 id="rank-tags-results-title" tabindex="-1">已发放账号</h2>
+            <p class="hint">可同时发放多枚标签。撤下手动标签时，身份自带的同名标签仍会显示。</p>
+            <p class="rank-tags-status" id="rank-tags-notice" role="status" aria-atomic="true"></p>
+            <p class="rank-tags-status" id="rank-tags-status" role="status" aria-atomic="true"></p>
+          </div>
+          <button type="button" class="button rank-tags-reveal" id="rank-tags-retry" aria-controls="rank-tags-list" hidden>重新读取</button>
+          <ul class="rank-tags-list rank-tags-reveal" id="rank-tags-list" role="list" aria-labelledby="rank-tags-results-title" hidden></ul>
+          <div class="rank-tags-actions rank-tags-reveal" id="rank-tags-pagination" role="group" aria-label="账号列表分页" hidden>
+            <button type="button" class="button" id="rank-tags-prev" aria-controls="rank-tags-list">上一页</button>
+            <button type="button" class="button" id="rank-tags-next" aria-controls="rank-tags-list">下一页</button>
+          </div>
+        </section>
+        <template id="rank-tags-row-template">
+          <li class="rank-tags-row">
+            <div class="rank-tags-identity">
+              <h3 data-name dir="auto"></h3>
+              <p class="hint" data-username></p>
+              <p class="hint rank-tags-meta"><span data-uid></span><span data-role></span></p>
+            </div>
+            <div class="rank-tags-edit">
+              <div class="rank-tags-builtin">
+                <span class="hint">身份自带</span>
+                <ul class="rank-tags-badges" data-builtin role="list" aria-label="身份自带的标签" hidden></ul>
+                <span class="hint" data-no-builtin>无</span>
+              </div>
+              <fieldset class="rank-tags-grants">
+                <legend>手动标签</legend>
+                <div class="rank-tags-buttons" data-grants></div>
+              </fieldset>
+              <p class="rank-tags-status" data-row-status role="status" aria-atomic="true"></p>
+            </div>
+          </li>
+        </template>
       </section>
 
       <section id="feedback-view" data-shell-view aria-labelledby="feedback-title" hidden>

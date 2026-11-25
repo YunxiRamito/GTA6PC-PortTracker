@@ -17,8 +17,10 @@ const SUBJECT = /^[a-f\d]{64}$/;
 const AVATAR = /^[a-f\d]{32}$/;
 const COLORS = new Set(['default', 'mint', 'sky', 'rose', 'lemon', 'admin-teal', 'moderator-teal', 'hatsune-green', 'owner-red', 'gold', 'orange']);
 const STAFF = new Set(['owner', 'admin', 'moderator']);
+const RANK_TAGS = new Set([...STAFF, 'sponsor', 'none']);
+const isRankTag = value => RANK_TAGS.has(value);
 const isGroupTag = value => Number.isInteger(value) && value >= 1 && value <= 8;
-const MESSAGE_FIELDS = ['kind', 'admin', 'nickname', 'color', 'staff', 'member', 'sponsor', 'avatar', 'likes', 'groupTag'];
+const MESSAGE_FIELDS = ['kind', 'admin', 'nickname', 'color', 'staff', 'member', 'sponsor', 'avatar', 'likes', 'groupTag', 'rankTag'];
 const invalid = () => new ContentError(400, '弹幕历史记录或分页参数有误，请刷新后重试');
 const unavailable = () => new ContentError(503, '弹幕历史暂时不可用');
 const exactKeys = (value, keys) => value && typeof value === 'object' && !Array.isArray(value) &&
@@ -26,6 +28,11 @@ const exactKeys = (value, keys) => value && typeof value === 'object' && !Array.
 const validTime = time => Number.isSafeInteger(time) && time >= 0 && time <= 8_640_000_000_000_000;
 const validDate = date => typeof date === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(date) &&
   !Number.isNaN(Date.parse(date)) && new Date(date).toISOString() === date;
+
+// Stored and relayed tags describe the message at send time, even if the grant later changes.
+function hasValidRankTag({ rankTag, member, anonymous, kind }) {
+  return member === true && anonymous !== true && kind === undefined && isRankTag(rankTag);
+}
 
 function normalize(record) {
   const message = record?.message;
@@ -53,6 +60,7 @@ function normalize(record) {
       (message.sponsor !== undefined && message.sponsor !== true) ||
       (message.sponsor === true && message.member !== true) ||
       (message.groupTag !== undefined && !isGroupTag(message.groupTag)) ||
+      (message.rankTag !== undefined && !hasValidRankTag(message)) ||
       (message.kind !== undefined && message.kind !== 'moderation')) throw invalid();
 
   const cleanMessage = {
@@ -443,4 +451,4 @@ function createPublicHistorySnapshot({ filePath, maxMessages, maxBytes, projectM
   return { read: () => snapshot, write, flush: () => pending };
 }
 
-module.exports = { createDanmakuHistory, createPublicHistorySnapshot, RETENTION_DAYS, isGroupTag };
+module.exports = { createDanmakuHistory, createPublicHistorySnapshot, RETENTION_DAYS, isGroupTag, isRankTag, hasValidRankTag };

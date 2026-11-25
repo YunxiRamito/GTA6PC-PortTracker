@@ -889,6 +889,54 @@ details[open]::details-content { opacity: 1; overflow: visible; }
 .danmaku-word-term { display: block; font-weight: 700; overflow-wrap: anywhere; white-space: pre-wrap; }
 .danmaku-word-term + .danmaku-meta { margin-top: .15rem; }
 
+/* 弹幕标签管理 */
+.rank-tags-panel { display: grid; gap: var(--space-3); }
+.rank-tags-search-area, .rank-tags-results-heading { display: grid; gap: var(--space-2); }
+.rank-tags-search { display: flex; flex-wrap: wrap; align-items: end; gap: var(--space-2) var(--space-3); max-width: 38rem; }
+.rank-tags-search .field { flex: 1 1 16rem; min-width: 0; }
+.rank-tags-search input::-webkit-search-cancel-button { display: none; }
+.rank-tags-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.rank-tags-results-heading { border-top: 1px solid var(--line); padding-top: var(--space-4); }
+.rank-tags-status { color: var(--muted); font-size: var(--text-sm); overflow-wrap: anywhere; }
+.rank-tags-results-heading .rank-tags-status:empty { margin-top: calc(0px - var(--space-2)); }
+.rank-tags-status[data-tone='success'] { color: var(--success); }
+.rank-tags-status[data-tone='error'] { color: var(--danger); }
+.rank-tags-status[data-tone='loading'] { color: var(--info); }
+.rank-tags-panel .button[aria-disabled='true'] { opacity: .5; cursor: not-allowed; }
+.rank-tags-panel .button[aria-disabled='true']:active { transform: none; }
+#rank-tags-retry { justify-self: start; }
+.rank-tags-list, .rank-tags-badges { margin: 0; padding: 0; list-style: none; }
+.rank-tags-list { display: grid; gap: var(--space-2); }
+.rank-tags-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+  align-items: start;
+  gap: var(--space-3) var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-well);
+  animation: appear var(--medium) var(--ease) both;
+}
+.rank-tags-identity, .rank-tags-edit { min-width: 0; overflow-wrap: anywhere; }
+.rank-tags-identity { display: grid; gap: var(--space-1); }
+.rank-tags-edit { container-type: inline-size; }
+.rank-tags-meta, .rank-tags-builtin, .rank-tags-badges { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-2); }
+.rank-tags-meta { gap: var(--space-1) var(--space-3); }
+.rank-tags-badges li { padding-inline: var(--space-2); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); color: var(--lavender); font-size: var(--text-xs); }
+.rank-tags-grants { margin: var(--space-2) 0 0; padding: 0; min-width: 0; border: 0; }
+.rank-tags-grants legend { margin-bottom: var(--space-1); padding: 0; color: var(--subtle); font-size: var(--text-xs); }
+.rank-tags-buttons { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }
+@container (min-width: 24rem) { .rank-tags-buttons { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.rank-tags-buttons .button { min-height: 2.75rem; padding-inline: var(--space-2); white-space: normal; }
+.rank-tags-buttons .button[data-granted='true'] { border-color: var(--success-line); color: var(--success); background: var(--success-bg); }
+.rank-tags-edit .rank-tags-status:not(:empty) { margin-top: var(--space-2); }
+.rank-tags-reveal {
+  transition: opacity var(--fast) var(--ease), transform var(--fast) var(--ease), display var(--fast) allow-discrete;
+}
+.rank-tags-reveal[hidden] { opacity: 0; transform: translateY(-.25rem); pointer-events: none; }
+@starting-style { .rank-tags-reveal:not([hidden]) { opacity: 0; transform: translateY(.25rem); } }
+
 /* 悬停 */
 @media (hover: hover) {
   .nav-group-toggle:hover, .nav-group a:hover { color: var(--text); background: var(--surface-1); }
@@ -900,6 +948,7 @@ details[open]::details-content { opacity: 1; overflow: visible; }
   .entry:hover { border-color: var(--line-strong); }
   summary:hover > .entry-label > .entry-title { color: var(--accent); }
   .account-table tbody tr:hover { background: var(--surface-2); }
+  .rank-tags-panel .button[aria-disabled='true']:hover { border-color: var(--line-strong); }
 }
 
 /* 窄屏：顶栏 + 下拉抽屉 */

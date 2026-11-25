@@ -1,6 +1,17 @@
 (() => {
   'use strict';
 
+  const t = (key, fallback, params) => window.SiteI18n?.t(key, fallback, params) ??
+    (params ? fallback.replace(/\{(\w+)\}/g, (token, name) => params[name] ?? token) : fallback);
+  window.SiteI18n?.register?.({
+    'widgets.danmaku.roleOwner': ['Site owner', 'サイト管理者'],
+    'widgets.danmaku.roleAdmin': ['Admin', '管理'],
+    'widgets.danmaku.roleModerator': ['Moderator', 'モデレーター'],
+    'widgets.danmaku.roleContributor': ['Contributor', '共同制作者'],
+    'widgets.danmaku.rankReset': ['That badge is no longer available. Automatic is restored; send again or choose a badge in Settings.', 'そのバッジは使えなくなったため、自動に戻しました。再送信するか、設定でバッジを選んでください。'],
+    'widgets.danmaku.rankForbidden': ['That badge is no longer available. Check your selection in Settings, then send again.', 'そのバッジは使えなくなりました。設定で選択を確認してから再送信してください。'],
+  });
+
   const MAX_CODE_POINTS = 60;
   const MAX_SEEN_IDS = 500;
   const MAX_PENDING_CHIPS = 12;
@@ -44,7 +55,12 @@
     ['moderator', ['moderator-teal', 'orange']],
   ]);
   const SPONSOR_COLORS = new Set(['gold', 'hatsune-green']);
-  const STAFF_NAMES = new Map([['owner', '站长'], ['admin', '管理'], ['moderator', '纪委']]);
+  const RANK_NAMES = new Map([
+    ['owner', t('widgets.danmaku.roleOwner', '站长')],
+    ['admin', t('widgets.danmaku.roleAdmin', '管理')],
+    ['moderator', t('widgets.danmaku.roleModerator', '纪委')],
+    ['sponsor', t('widgets.danmaku.roleContributor', '共创')],
+  ]);
   const NICKNAME_LIMIT = 12;
   const NICKNAME_LENGTH_MESSAGE = '最多 6 个汉字或 12 个英文字母。';
   const CLOSED_NOTICE = '管理员暂时关闭了实时弹幕';
@@ -61,6 +77,9 @@
   const options = document.getElementById('danmakuOptions');
   const optionsClose = document.getElementById('danmakuOptionsClose');
   const appearanceForm = document.getElementById('danmakuAppearance');
+  const rankTagField = document.getElementById('danmakuRankTagField');
+  const rankTagSelect = document.getElementById('danmakuRankTag');
+  const rankTagPreview = document.getElementById('danmakuRankPreview');
   const groupTagSelect = document.getElementById('danmakuGroupTag');
   const groupTagPreview = document.getElementById('danmakuGroupPreview');
   const nicknameInput = document.getElementById('danmakuNickname');
@@ -272,12 +291,17 @@
     return Number.isInteger(value) && value >= 1 && value <= 8;
   }
 
+  function validRankTag(value) {
+    return value === 'none' || RANK_NAMES.has(value);
+  }
+
   function readAppearance() {
     let stored;
     try { stored = JSON.parse(storageRead(APPEARANCE_KEY)); } catch { /* Discard invalid saved values. */ }
     return {
       nickname: cleanNickname(stored?.nickname) ?? '',
       groupTag: validGroupTag(stored?.groupTag) ? stored.groupTag : undefined,
+      rankTag: validRankTag(stored?.rankTag) ? stored.rankTag : undefined,
       color: MEMBER_COLORS.has(stored?.color) ? stored.color : 'default',
       sponsorColor: MEMBER_COLORS.has(stored?.sponsorColor) || SPONSOR_COLORS.has(stored?.sponsorColor)
         ? stored.sponsorColor : 'gold',
@@ -289,6 +313,7 @@
   }
 
   let appearance = readAppearance();
+  let rankTagDraft;
 
   display.checked = !manualDisplay && storageRead() !== 'off';
   replayAllowed = performance.getEntriesByType('navigation')[0]?.type === 'reload' && display.checked && !document.hidden;
@@ -651,13 +676,15 @@
     const staff = !isModeration && STAFF_COLORS.has(value.staff) ? value.staff : admin ? 'admin' : '';
     const member = !isModeration && value.member === true;
     const sponsor = member && value.sponsor === true;
+    const anonymous = value.anonymous === true;
     const canDisplayColor = MEMBER_COLORS.has(value.color) || STAFF_COLORS.get(staff)?.includes(value.color)
       || (sponsor && SPONSOR_COLORS.has(value.color));
     return {
-      id, text, admin, anonymous: value.anonymous === true,
+      id, text, admin, anonymous,
       createdAt: typeof value.createdAt === 'string' ? value.createdAt : '',
       moderation: isModeration,
       groupTag: !isModeration && validGroupTag(value.groupTag) ? value.groupTag : undefined,
+      rankTag: member && !anonymous && value.kind === undefined && validRankTag(value.rankTag) ? value.rankTag : undefined,
       nickname: isModeration ? '' : cleanNickname(value.nickname) ?? '',
       color: !isModeration && canDisplayColor ? value.color
         : !isModeration && STAFF_COLORS.has(value.staff) ? STAFF_COLORS.get(staff)[0] : '',
@@ -870,6 +897,20 @@
     scheduleChip(item, localOnly);
   }
 
+  function visibleRankTags({ staff, sponsor, rankTag }) {
+    if (rankTag === 'none') return [];
+    if (rankTag !== undefined) return [rankTag];
+    return [staff, sponsor && 'sponsor'].filter(Boolean);
+  }
+
+  function createRankBadge(rank) {
+    const badge = document.createElement('span');
+    badge.className = 'danmaku-rank';
+    badge.dataset.rank = rank;
+    badge.textContent = RANK_NAMES.get(rank);
+    return badge;
+  }
+
   function appendIdentity(line, item) {
     if (item.anonymous) return;
     const nickname = item.nickname || (item.member ? '用户' : item.admin ? '管理员' : '游客');
@@ -894,20 +935,7 @@
     name.className = 'danmaku-nickname';
     name.textContent = nickname;
     line.append(name);
-    if (item.staff) {
-      const badge = document.createElement('span');
-      badge.className = 'danmaku-rank';
-      badge.dataset.rank = item.staff;
-      badge.textContent = STAFF_NAMES.get(item.staff);
-      line.append(badge);
-    }
-    if (item.sponsor) {
-      const badge = document.createElement('span');
-      badge.className = 'danmaku-rank';
-      badge.dataset.rank = 'sponsor';
-      badge.textContent = '共创';
-      line.append(badge);
-    }
+    line.append(...visibleRankTags(item).map(createRankBadge));
   }
 
   function paintGroupTag(badge, groupTag) {
@@ -1669,6 +1697,48 @@
     return STAFF_COLORS.get(role)?.[0] || 'default';
   }
 
+  function selectableRankTags() {
+    if (!signedIn() || !member) return [];
+    const { rankTags, staff, sponsor } = member;
+    // An empty server list is authoritative. Only older sessions lack this field.
+    return rankTags ?? [...RANK_NAMES.keys()].filter(rank =>
+      staff === 'owner' || rank === staff || (rank === 'sponsor' && sponsor));
+  }
+
+  function canSelectRankTag(tag, ranks) {
+    // Hiding is separate from the list of grantable labels. Admin/mod badges cannot be hidden.
+    if (tag === 'none') return ranks.length > 0 && (!member?.staff || member.staff === 'owner');
+    return ranks.includes(tag);
+  }
+
+  function preferredRankTag(ranks = selectableRankTags()) {
+    return canSelectRankTag(appearance.rankTag, ranks) ? appearance.rankTag : undefined;
+  }
+
+  function paintRankTagPreview() {
+    if (!rankTagSelect || !rankTagPreview) return;
+    const ranks = rankTagSelect.disabled ? [] : visibleRankTags({
+      staff: member?.staff,
+      sponsor: member?.sponsor,
+      rankTag: rankTagSelect.value || undefined,
+    });
+    const badges = rankTagPreview.children;
+    if (ranks.length === badges.length && ranks.every((rank, index) => badges[index].dataset.rank === rank)) return;
+    rankTagPreview.replaceChildren(...ranks.map(createRankBadge));
+  }
+
+  function renderRankTagOptions(reset = false) {
+    if (!rankTagField || !rankTagSelect) return;
+    const ranks = selectableRankTags();
+    rankTagField.hidden = rankTagSelect.disabled = ranks.length === 0;
+    for (const option of rankTagSelect.options ?? []) {
+      if (validRankTag(option.value)) option.hidden = option.disabled = !canSelectRankTag(option.value, ranks);
+    }
+    if (reset || (rankTagDraft && !canSelectRankTag(rankTagDraft, ranks))) rankTagDraft = undefined;
+    rankTagSelect.value = rankTagDraft ?? preferredRankTag(ranks) ?? '';
+    paintRankTagPreview();
+  }
+
   function updateNicknameCount() {
     const units = nicknameUnits(nicknameInput.value.normalize('NFC').trim());
     nicknameCount.textContent = `${units} / ${NICKNAME_LIMIT}`;
@@ -1689,6 +1759,7 @@
     const identity = `${role}:${sponsor}`;
     if (reset || memberColors.dataset.role !== identity) appearanceForm.elements.color.value = preferredColor();
     memberColors.dataset.role = identity;
+    renderRankTagOptions(reset);
     updateNicknameCount();
   }
 
@@ -1789,6 +1860,10 @@
     nicknameInput.removeAttribute('aria-invalid');
     updateNicknameCount();
   });
+  rankTagSelect?.addEventListener('change', () => {
+    rankTagDraft = rankTagSelect.value;
+    paintRankTagPreview();
+  });
   groupTagSelect?.addEventListener('change', () => paintGroupTag(groupTagPreview, Number(groupTagSelect.value)));
   appearanceForm.addEventListener('submit', event => {
     event.preventDefault();
@@ -1805,6 +1880,10 @@
     if (groupTagSelect) {
       const tag = Number(groupTagSelect.value);
       appearance.groupTag = validGroupTag(tag) ? tag : undefined;
+    }
+    if (rankTagSelect && !rankTagSelect.disabled) {
+      const tag = rankTagSelect.value;
+      appearance.rankTag = canSelectRankTag(tag, selectableRankTags()) ? tag : undefined;
     }
     if (signedIn()) {
       const role = staffRole();
@@ -2315,6 +2394,9 @@
             nickname: session.nickname,
             staff: STAFF_COLORS.has(session.staff) ? session.staff : '',
             sponsor: session.sponsor === true,
+            rankTags: Object.hasOwn(session, 'rankTags')
+              ? [...RANK_NAMES.keys()].filter(rank => Array.isArray(session.rankTags) && session.rankTags.includes(rank))
+              : undefined,
             avatarTag: /^[a-f0-9]{32}$/.test(session.avatarTag) ? session.avatarTag : null,
           } : null;
           setPostingIdentity(nextMember, session.canModerate ?? !nextMember, session.gold ?? !nextMember);
@@ -2752,7 +2834,12 @@
       const style = {};
       if (appearance.groupTag !== undefined) style.groupTag = appearance.groupTag;
       if (!consoleSend && appearance.nickname) style.nickname = appearance.nickname;
-      if (consoleSend) style.color = preferredColor();
+      const sender = consoleSend ? member : null;
+      if (consoleSend) {
+        style.color = preferredColor();
+        const rankTag = preferredRankTag();
+        if (rankTag !== undefined) style.rankTag = rankTag;
+      }
       const response = await fetch(consoleSend ? adminEndpoint('messages') : '/api/danmaku', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
@@ -2779,6 +2866,21 @@
           setMute({ muted: true, expiresAt: problem.expiresAt, source: problem.source }, true);
           return;
         }
+        if (response.status === 403 && problem?.code === 'rank_tag_forbidden') {
+          const rejected = style.rankTag;
+          const restoreAutomatic = rejected !== undefined && appearance.rankTag === rejected;
+          if (restoreAutomatic) {
+            appearance.rankTag = undefined;
+            if (rankTagDraft === rejected) rankTagDraft = undefined;
+            storageWrite(JSON.stringify(appearance), APPEARANCE_KEY);
+            if (!options.inert) renderRankTagOptions();
+          }
+          setStatus(restoreAutomatic
+            ? t('widgets.danmaku.rankReset', '所选身份标签已不可用，已恢复自动。请重发，或在「样式」中重选。')
+            : t('widgets.danmaku.rankForbidden', '所选身份标签不可用。请在「样式」中检查后再发送。'), 'error');
+          void refreshAdmin(true);
+          return;
+        }
         setStatus(retryMessage(response, problem?.code), 'error');
         return;
       }
@@ -2786,7 +2888,7 @@
       if (!consoleSend) readSendCooldown(response, 'X-Danmaku-Cooldown');
       const reply = await response.json().catch(() => null);
       const item = localOnly
-        ? parseItem({ id: 'local-echo:' + ++localEchoId, text, createdAt: new Date().toISOString(), admin: senior, staff: member?.staff, member: Boolean(member), sponsor: member?.sponsor === true, ...style, groupTag: reply?.anonymous === true ? reply.groupTag : style.groupTag, nickname: member?.nickname ?? style.nickname, anonymous: reply?.anonymous === true })
+        ? parseItem({ id: 'local-echo:' + ++localEchoId, text, createdAt: new Date().toISOString(), admin: senior, staff: sender?.staff, member: Boolean(sender), sponsor: sender?.sponsor === true, ...style, groupTag: reply?.anonymous === true ? reply.groupTag : style.groupTag, nickname: sender?.nickname ?? style.nickname, anonymous: reply?.anonymous === true })
         : parseItem(reply);
       if (posted && !senior) {
         hasSent = true;

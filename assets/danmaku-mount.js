@@ -1,6 +1,22 @@
 (() => {
   'use strict';
 
+  const t = (key, fallback, params) => window.SiteI18n?.t(key, fallback, params) ??
+    (params ? fallback.replace(/\{(\w+)\}/g, (token, name) => params[name] ?? token) : fallback);
+  window.SiteI18n?.register?.({
+    'widgets.danmaku.roleOwner': ['Site owner', 'サイト管理者'],
+    'widgets.danmaku.roleAdmin': ['Admin', '管理'],
+    'widgets.danmaku.roleModerator': ['Moderator', 'モデレーター'],
+    'widgets.danmaku.roleContributor': ['Contributor', '共同制作者'],
+    'widgets.danmaku.rankTag': ['Identity badge', '識別バッジ'],
+    'widgets.danmaku.rankAuto': ['Automatic', '自動'],
+    'widgets.danmaku.rankNone': ['Hide badge', '表示しない'],
+    'widgets.danmaku.rankHint': ['This only changes the badge shown, not account permissions.', 'バッジの表示のみが変わり、アカウントの権限は変わりません。'],
+  });
+  // Catalog strings are plain text, including when used as attributes.
+  const entities = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+  const html = (...args) => t(...args).replace(/[&<>"']/g, character => entities[character]);
+
   const mount = document.querySelector('[data-danmaku-mount]');
   // The page owns the dock position; the widget has exactly one instance.
   if (!mount || document.getElementById('danmakuWidget')) return;
@@ -114,6 +130,21 @@
             </label>
           </div>
         </fieldset>
+        <div class="danmaku-appearance-field" id="danmakuRankTagField" hidden>
+          <div class="danmaku-appearance-label-row">
+            <label for="danmakuRankTag">${html('widgets.danmaku.rankTag', '身份标签')}</label>
+            <span class="danmaku-rank-preview" id="danmakuRankPreview" aria-hidden="true"></span>
+          </div>
+          <select id="danmakuRankTag" name="rankTag" aria-describedby="danmakuRankTagHint" disabled>
+            <option value="">${html('widgets.danmaku.rankAuto', '自动')}</option>
+            <option value="owner" hidden disabled>${html('widgets.danmaku.roleOwner', '站长')}</option>
+            <option value="admin" hidden disabled>${html('widgets.danmaku.roleAdmin', '管理')}</option>
+            <option value="moderator" hidden disabled>${html('widgets.danmaku.roleModerator', '纪委')}</option>
+            <option value="sponsor" hidden disabled>${html('widgets.danmaku.roleContributor', '共创')}</option>
+            <option value="none">${html('widgets.danmaku.rankNone', '不显示')}</option>
+          </select>
+          <p class="danmaku-appearance-hint" id="danmakuRankTagHint">${html('widgets.danmaku.rankHint', '只影响标签显示，不改变账号权限。')}</p>
+        </div>
         <div class="danmaku-appearance-field">
           <div class="danmaku-appearance-label-row">
             <label for="danmakuGroupTag">群标签</label>

@@ -993,6 +993,15 @@ html.menu-open .danmaku-layer { visibility: hidden; }
   line-height: 1.25;
   white-space: nowrap;
 }
+#danmakuRankPreview {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: .25rem;
+  min-block-size: 1.2rem;
+  font-size: .75rem;
+}
 .danmaku-group-preview { display: flex; align-items: center; min-block-size: 1.2rem; }
 .danmaku-group-preview .danmaku-group-tag {
   transition: opacity 180ms cubic-bezier(.2,.75,.3,1), transform 180ms cubic-bezier(.2,.75,.3,1), color 180ms ease, border-color 180ms ease;
@@ -1104,13 +1113,48 @@ html.menu-open .danmaku-layer { visibility: hidden; }
   from { opacity: 0; transform: translateY(3px); }
   to { opacity: 1; transform: none; }
 }
-.danmaku-rank[data-rank="owner"] { color: #ffc0c9; background: #713344; }
+.danmaku-rank:is([data-rank="owner"], [data-rank="sponsor"]) {
+  background-size: auto, 240% 100%;
+  animation:
+    danmaku-rank-in 240ms var(--ease, ease) both,
+    danmaku-rank-foil-drift 4s ease-in-out infinite alternate;
+}
+.danmaku-rank[data-rank="owner"] {
+  color: #fff7f3;
+  border-color: #d98985;
+  background-color: #801e32;
+  background-image:
+    repeating-linear-gradient(115deg, rgba(255, 191, 181, .07) 0 1px, transparent 1px 3px),
+    linear-gradient(115deg,
+      #4c101e 0%, #77182e 12%, #9e263f 24%, #ab4b48 30%, #8e1b32 38%,
+      #651424 50%, #a22640 62%, #a94c48 70%, #78172b 84%, #9a2943 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 170, 158, .58),
+    inset 0 -1px 0 rgba(45, 0, 13, .72),
+    0 0 8px rgba(210, 64, 87, .26);
+  text-shadow: 0 1px 1px rgba(45, 0, 13, .68);
+}
 .danmaku-rank[data-rank="admin"] { color: #071816; background: #4c8a85; }
 .danmaku-rank[data-rank="moderator"] { color: #fff; background: #3f6b67; }
 .danmaku-rank[data-rank="sponsor"] {
-  border-color: var(--danmaku-appearance-accent);
-  background: var(--danmaku-appearance-accent);
-  color: var(--danmaku-badge-ink);
+  color: #2b1a00;
+  border-color: #f7e3a1;
+  background-color: #d9a93b;
+  background-image:
+    repeating-linear-gradient(115deg, rgba(255, 248, 205, .10) 0 1px, transparent 1px 3px),
+    linear-gradient(115deg,
+      #b9852d 0%, #c9942c 12%, #f6dd8a 24%, #fff4c4 30%, #d9a93b 38%,
+      #bb8831 50%, #f3d47a 62%, #ffe9a6 70%, #b07d12 84%, #e8bd55 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 241, 192, .72),
+    inset 0 -1px 0 rgba(74, 42, 0, .60),
+    0 0 8px rgba(255, 205, 90, .28);
+  text-shadow: 0 1px 0 rgba(255, 248, 205, .40);
+}
+/* The grain stays fixed while the metallic gradient drifts underneath. */
+@keyframes danmaku-rank-foil-drift {
+  from { background-position: 0 0, 0 0; }
+  to   { background-position: 0 0, 100% 0; }
 }
 .danmaku-color-swatch-owner-red { background: #eca2b2; }
 .danmaku-color-swatch-admin-teal { background: #4c8a85; }
@@ -1202,6 +1246,10 @@ html.menu-open .danmaku-layer { visibility: hidden; }
 @media (prefers-reduced-motion: reduce) {
   .danmaku-appearance *, .danmaku-appearance *::before, .danmaku-appearance *::after,
   .danmaku-nickname, .danmaku-rank { transition: none; animation: none; }
+  .danmaku-rank:is([data-rank="owner"], [data-rank="sponsor"]) {
+    animation: none;
+    background-position: 0 0, 50% 0;
+  }
 }
 /* Let fresh bubbles pass a slowed liked bubble while keeping reaction sparks above both. */
 .danmaku-chip { z-index: 1; }

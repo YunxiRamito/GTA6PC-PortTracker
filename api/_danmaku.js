@@ -7,7 +7,9 @@ const { ContentError } = require('./_content');
 const { cleanDanmakuText, cleanDanmakuNickname } = require('./_danmaku-filter');
 const { createWordStore } = require('./_danmaku-words');
 const { createMuteStore, parseMuteDuration, UUID, SUBJECT } = require('./_danmaku-mutes');
-const { createDanmakuHistory, createPublicHistorySnapshot, RETENTION_DAYS, isGroupTag } = require('./_danmaku-history');
+const {
+  createDanmakuHistory, createPublicHistorySnapshot, RETENTION_DAYS, isGroupTag, isRankTag, hasValidRankTag,
+} = require('./_danmaku-history');
 const { createCommunityMuteStore } = require('./_danmaku-community-mutes');
 const { createDanmakuSettings } = require('./_danmaku-settings');
 const { createScheduledDanmaku } = require('./_danmaku-scheduled');
@@ -196,7 +198,7 @@ function appearance(nickname, color, admin, staff, sponsor = false) {
 function verifyMessage(value, forArchive = false) {
   if (typeof value?.id !== 'string' || !UUID.test(value.id) || typeof value.text !== 'string' ||
       typeof value.createdAt !== 'string' || !Number.isFinite(Date.parse(value.createdAt))) return;
-  const { id, text, createdAt, kind, admin, nickname, color } = value;
+  const { id, text, createdAt, kind, admin, nickname, color, rankTag } = value;
   if (forArchive && new Date(createdAt).toISOString() !== createdAt) return;
   const staff = value.staff === 'moderator' ? value.staff
     : admin === true ? (value.staff === 'owner' || value.staff === 'admin' ? value.staff : undefined) : undefined;
@@ -211,6 +213,7 @@ function verifyMessage(value, forArchive = false) {
     ...(value.member === true ? { member: true } : {}),
     ...(value.member === true && value.sponsor === true ? { sponsor: true } : {}),
     ...(isGroupTag(value.groupTag) ? { groupTag: value.groupTag } : {}),
+    ...(hasValidRankTag(value) ? { rankTag } : {}),
     ...(value.member === true && typeof value.avatar === 'string' && AVATAR_TAG.test(value.avatar) ? { avatar: value.avatar } : {}),
     ...(validLikeCount(value.likes) ? { likes: value.likes } : {}),
   };
@@ -556,7 +559,10 @@ function createRelay({
       if (response.status >= 500) markUnreachable(bridge);
       if (response.status === 201 && mediaType(response) === 'application/json') {
         const message = verifyMessage(await response.json());
-        if (message && !message.admin && message.kind !== 'moderation') return { status: 201, message, cooldown };
+        // This POST only relays guest sends. Member messages arrive on the upstream stream.
+        if (message && !message.member && !message.admin && !message.staff && message.kind !== 'moderation') {
+          return { status: 201, message, cooldown };
+        }
       }
     } catch { /* The mirror only publishes messages accepted by the main site. */ }
     finally {
@@ -709,6 +715,21 @@ function submissionGroupTag(body) {
   const tag = body?.groupTag;
   if (tag !== undefined && !isGroupTag(tag)) throw new ContentError(400, '群标签须为 1 到 8 的整数');
   return tag;
+}
+
+function rankTagRejection(rankTag, sender) {
+  if (rankTag === undefined) return;
+  if (!isRankTag(rankTag)) return { status: 400, error: '身份标签格式无效', extra: { code: 'rank_tag_invalid' } };
+  if (sender?.member === true) {
+    const { rankTags, staff, sponsor } = sender;
+    if (rankTag === 'none') {
+      // Hiding the tag is a built-in choice, separate from grantable badges.
+      if (staff === undefined || staff === 'owner') return;
+    } else if (rankTags === undefined) {
+      if (staff === 'owner' || rankTag === staff || (sponsor === true && rankTag === 'sponsor')) return;
+    } else if (Array.isArray(rankTags) && rankTags.includes(rankTag)) return;
+  }
+  return { status: 403, error: '无法使用所选身份标签', extra: { code: 'rank_tag_forbidden' } };
 }
 
 function createDanmaku({
@@ -1530,12 +1551,13 @@ function createDanmaku({
     return Math.max(minIntervalSeconds, quotaWait(subject, time, perMinute));
   }
 
-  function makeMessage(text, time, { nickname, color, admin = false, staff, member, sponsor, avatar, groupTag }) {
+  function makeMessage(text, time, { nickname, color, admin = false, staff, member, sponsor, avatar, groupTag, rankTag }) {
     return {
       id: randomUUID(), text, createdAt: new Date(time).toISOString(),
       ...(admin ? { admin: true } : {}), ...appearance(nickname, color, admin, staff, member && sponsor),
       ...(member ? { member: true } : {}), ...(member && sponsor ? { sponsor: true } : {}), ...(avatar ? { avatar } : {}),
       ...(isGroupTag(groupTag) ? { groupTag } : {}),
+      ...(rankTag === undefined ? {} : { rankTag }),
     };
   }
 
@@ -1689,6 +1711,9 @@ function createDanmaku({
       const nonce = body?.nonce;
       if (typeof nonce !== 'string' || !NONCE_FORMAT.test(nonce)) return sendResult(res, staleRequest());
       submissionGroupTag(body);
+      // Public sends are visitor sends, even on the authenticated mirror relay.
+      const tagRejection = rankTagRejection(body?.rankTag);
+      if (tagRejection) return sendResult(res, tagRejection);
       if (relay && !relay.isOffline()) {
         if (offlineNonces.has(nonce)) {
           nonces.consume(binding, nonce);
@@ -1719,7 +1744,10 @@ function createDanmaku({
     if (!member) return sendResult(res, staleRequest(), headers);
     const admin = member.staff === 'owner' || member.staff === 'admin';
     const subject = admin ? undefined : distinctSubject('account', member.id);
-    return publishSignedIn(res, body, headers, { nickname: member.nickname, avatar: member.avatar, staff: member.staff, admin, subject, deviceSubject: member.deviceSubject, member: true, sponsor: member.sponsor === true });
+    return publishSignedIn(res, body, headers, {
+      nickname: member.nickname, avatar: member.avatar, staff: member.staff, admin, subject,
+      deviceSubject: member.deviceSubject, member: true, sponsor: member.sponsor === true, rankTags: member.rankTags,
+    });
   }
 
   async function sendAdmin(req, res, headers, consumeNonce) {
@@ -1729,7 +1757,8 @@ function createDanmaku({
     return publishSignedIn(res, body, headers, { nickname: body.nickname, admin: true });
   }
 
-  function publishSignedIn(res, body, headers, { nickname: rawNickname, avatar, staff, admin, subject, deviceSubject, member, sponsor = false }) {
+  function publishSignedIn(res, body, headers, sender) {
+    const { nickname: rawNickname, avatar, staff, admin, subject, deviceSubject, member, sponsor = false } = sender;
     const time = now();
     if (!isActive(time)) return sendResult(res, closedResult(), headers);
     if (subject) {
@@ -1738,6 +1767,9 @@ function createDanmaku({
     }
     const text = submissionText(body);
     const groupTag = submissionGroupTag(body);
+    const rankTag = body.rankTag;
+    const tagRejection = rankTagRejection(rankTag, sender);
+    if (tagRejection) return sendResult(res, tagRejection, headers);
     const nickname = cleanDanmakuNickname(rawNickname);
     if (nickname === null || (nickname && words.matches(nickname))) return sendResult(res, nicknameRejected(), headers);
     if (words.matches(text)) return sendResult(res, { status: 422, error: BLOCKED }, headers);
@@ -1749,7 +1781,9 @@ function createDanmaku({
     const color = unlocked ? requestedColor : staffColors?.[0] ?? (sponsor ? 'gold' : undefined);
     const deviceMute = deviceSubject ? sendMuteStatus(deviceSubject) : null;
     if (deviceMute?.muted) return reject(res, 403, MUTED, headers, { code: 'muted', expiresAt: deviceMute.expiresAt, ...(deviceMute.source && { source: deviceMute.source }) });
-    const message = publishText(text, time, subject, { nickname, color, admin, staff, member, sponsor: member && sponsor, avatar: addPublicAvatar(avatar), deviceSubject, groupTag });
+    const message = publishText(text, time, subject, {
+      nickname, color, admin, staff, member, sponsor: member && sponsor, avatar: addPublicAvatar(avatar), deviceSubject, groupTag, rankTag,
+    });
     return sendResult(res, { status: 201, message }, headers);
   }
 

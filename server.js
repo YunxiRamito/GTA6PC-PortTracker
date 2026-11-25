@@ -13,6 +13,7 @@ const { createTrafficHistory } = require('./api/_traffic-history');
 const { createTrafficEvents } = require('./api/_traffic-events');
 const { SEND_PATH, STREAM_PATH, RECENT_PATH, HISTORY_PATH, CONFIG_PATH, STATUS_PATH, LIKE_PATH, NONCE_PATH, COMMUNITY_VOTES_PATH, AVATAR_PATH, createDanmaku } = require('./api/_danmaku');
 const { UUID: DANMAKU_ID } = require('./api/_danmaku-mutes');
+const { createRankGrants, builtinRankTags, allowedRankTags, validTag } = require('./api/_danmaku-rank-grants');
 const { createAdminAuth } = require('./api/_admin-auth');
 const { createAdminAccounts } = require('./api/_admin-accounts');
 const { createSponsors, UUID: SPONSOR_UUID } = require('./api/_sponsors');
@@ -50,6 +51,7 @@ const ADMIN_FILES = {
   '/admin/admin.js': 'admin/admin.js',
   '/admin/admin.css': 'admin/admin.css',
   '/admin/danmaku.js': 'admin/danmaku.js',
+  '/admin/rank-tags.js': 'admin/rank-tags.js',
   '/admin/feedback': 'admin/feedback.html',
   '/admin/feedback/': 'admin/feedback.html',
   '/admin/feedback.js': 'admin/feedback.js',
@@ -89,6 +91,8 @@ const EDITOR_ROLES = new Set(['owner', 'admin']);
 const MODERATOR_ROLES = new Set(['owner', 'admin', 'moderator']);
 const DANMAKU_SETTINGS_PATH = `${ADMIN_DANMAKU}/settings`;
 const DANMAKU_SCHEDULED_PATH = `${ADMIN_DANMAKU}/scheduled`;
+const DANMAKU_RANK_TAGS_PATH = `${ADMIN_DANMAKU}/rank-tags`;
+const RANK_TAGS_PAGE_SIZE = 20;
 const SITE_DANMAKU_METHODS = new Map([
   [`${ADMIN_DANMAKU}/session`, 'GET'],
   [`${ADMIN_DANMAKU}/avatar`, 'GET'],
@@ -317,6 +321,22 @@ function createSiteServer({
     filePath: path.join(runtimeDir, 'sponsors.json'),
     accountExists: id => Boolean(accounts?.get(id)),
   });
+  const rankGrants = createRankGrants({
+    filePath: path.join(runtimeDir, 'danmaku-rank-grants.json'),
+    accountExists: id => Boolean(accounts?.get(id)),
+  });
+  let rankReadFailed = false;
+  async function rankTagsFor(account, sponsor) {
+    try {
+      const grants = await rankGrants.get(account.id);
+      rankReadFailed = false;
+      return allowedRankTags(account.role, sponsor, grants);
+    } catch (error) {
+      if (!rankReadFailed) console.error('Cannot read danmaku rank grants:', error.code || error.name);
+      rankReadFailed = true;
+      return builtinRankTags(account.role, sponsor);
+    }
+  }
   let sponsorReadFailed = false;
   async function isSponsor(accountId) {
     try {
@@ -536,6 +556,45 @@ function createSiteServer({
     }
   }
 
+  async function rankTagAccount(account, grantedTags) {
+    return { id: account.id, uid: account.uid, username: account.username, nickname: account.nickname,
+      role: account.role, builtinTags: builtinRankTags(account.role, await isSponsor(account.id)), grantedTags };
+  }
+
+  async function handleRankTags(req, res, query, headers) {
+    if (!accounts) return sendJson(res, 503, { error: '标签管理需要启用站点账号' }, headers);
+    const permission = browserPermission(req, OWNER_ROLES);
+    if (permission.status !== 200) return forbidAdmin(res, permission, headers);
+    if (req.method === 'GET') {
+      const params = new URLSearchParams(query);
+      const raw = params.get('q')?.trim() ?? '';
+      const offsetParam = params.get('offset') ?? '0';
+      if (raw.length > 80 || !/^\d{1,4}$/.test(offsetParam)) throw new ContentError(400, '搜索或分页参数无效');
+      const needle = raw.normalize('NFKC').toLowerCase();
+      const uid = /^(?:uid\s*)?(\d+)$/.exec(needle)?.[1];
+      const grants = await rankGrants.read();
+      const users = await accounts.list(permission.identity.id);
+      const matches = users.filter(account => !needle ? grants.has(account.id) : (
+        String(account.uid) === uid || account.username.toLowerCase().includes(needle) ||
+        account.nickname.normalize('NFKC').toLowerCase().includes(needle)
+      )).sort((a, b) => Number(String(b.uid) === uid) - Number(String(a.uid) === uid) || a.uid - b.uid);
+      const offset = Number(offsetParam);
+      const limit = RANK_TAGS_PAGE_SIZE;
+      const results = await Promise.all(matches.slice(offset, offset + limit).map(account => rankTagAccount(account, grants.get(account.id) ?? [])));
+      return sendJson(res, 200, { accounts: results, total: matches.length, offset, limit }, headers);
+    }
+    if (req.method !== 'PUT') return sendJson(res, 405, { error: '只支持 GET 或 PUT' }, { ...headers, Allow: 'GET, PUT' });
+    const body = await readJson(req, 1024);
+    if (!body || Array.isArray(body) || typeof body !== 'object' ||
+        Object.keys(body).some(key => !['accountId', 'tag', 'enabled'].includes(key)) ||
+        typeof body.accountId !== 'string' || !DANMAKU_ID.test(body.accountId) || !validTag(body.tag) ||
+        typeof body.enabled !== 'boolean') throw new ContentError(400, '请选择有效的账号和标签');
+    const grantedTags = await rankGrants.set(body, () => browserPermission(req, OWNER_ROLES).status === 200);
+    const account = accounts.get(body.accountId);
+    if (!account) throw new ContentError(404, '找不到该账号');
+    return sendJson(res, 200, { account: await rankTagAccount(account, grantedTags) }, headers);
+  }
+
   function avatarTag(avatar) {
     return crypto.createHash('sha256').update(avatar).digest('hex').slice(0, 32);
   }
@@ -544,6 +603,10 @@ function createSiteServer({
     if (req.method === 'OPTIONS' && cors) {
       res.writeHead(204, headers);
       return res.end();
+    }
+    if (pathname === DANMAKU_RANK_TAGS_PATH) {
+      try { return await handleRankTags(req, res, query, headers); }
+      catch (error) { return accountError(res, error, headers); }
     }
     if (pathname === `${ADMIN_DANMAKU}/community-votes`) {
       const { status, identity } = browserPermission(req);
@@ -561,10 +624,12 @@ function createSiteServer({
       if (!accounts) return sendJson(res, 200, { authenticated: status === 200 }, headers);
       if (status !== 200) return sendJson(res, 200, { authenticated: false }, headers);
       const profile = accounts.getProfile(identity.id);
+      const sponsor = await isSponsor(identity.id);
       return sendJson(res, 200, {
         authenticated: true,
         nickname: profile?.nickname || '',
-        sponsor: await isSponsor(identity.id),
+        sponsor,
+        rankTags: await rankTagsFor(identity, sponsor),
         canModerate: MODERATOR_ROLES.has(identity.role),
         gold: EDITOR_ROLES.has(identity.role),
         ...(MODERATOR_ROLES.has(identity.role) ? { staff: identity.role } : {}),
@@ -641,13 +706,15 @@ function createSiteServer({
             const current = browserPermission(req, undefined, true).identity;
             if (!current) return null;
             const profile = accounts.getProfile(current.id);
+            const sponsor = await isSponsor(current.id);
             return {
               id: current.id,
               nickname: profile?.nickname || '',
               avatar: profile?.avatar,
               deviceSubject: danmaku.accountDeviceSubject?.(req),
               staff: MODERATOR_ROLES.has(current.role) ? current.role : undefined,
-              sponsor: await isSponsor(current.id),
+              sponsor,
+              rankTags: await rankTagsFor(current, sponsor),
             };
           });
         }
