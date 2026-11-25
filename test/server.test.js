@@ -97,6 +97,7 @@ test('functional backend stores edits, enforces roles, and serves community rout
   assert.ok(archive.projects.every(project => project.repo.startsWith('demo-workshop/')));
   assert.equal((await send(origin, '/rss.xml')).status, 200);
   assert.equal((await send(origin, '/admin/')).headers.get('location'), '/admin/login');
+  assert.equal((await send(origin, '/admin/login')).headers.get('referrer-policy'), 'same-origin');
   assert.equal((await send(origin, '/api/admin/content/home')).status, 401);
   assert.equal((await send(origin, '/api/_admin-accounts.js')).status, 404);
   assert.equal((await send(origin, '/.runtime/accounts.json')).status, 404);

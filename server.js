@@ -753,7 +753,7 @@ function createSiteServer({
           if (permission.status !== 200) return forbidAdmin(res, permission, headers);
         }
         const device = req.method === 'GET' ? danmaku.issueBrowserDevice(req) : {};
-        return serveHtml(res, file, req, { ...adminHeaders, ...device });
+        return serveHtml(res, file, req, { ...adminHeaders, 'Referrer-Policy': 'same-origin', ...device });
       }
     }
     return sendJson(res, 404, { error: '没有这个后台页面' }, headers);

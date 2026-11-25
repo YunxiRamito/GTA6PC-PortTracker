@@ -327,8 +327,14 @@
     var ticks = milestones.slice(1).map(function (m) {
       return '<i style="left:' + m.at + '%"></i>';
     }).join('');
-    var labels = milestones.map(function (m) {
-      return '<span>' + escapeHtml(m.label) + '</span>';
+    var reachedIndex = milestones.findIndex(function (m) { return m.key === scored.reached; });
+    var reachedLabel = milestones[reachedIndex]?.label || scored.reachedLabel;
+    var labels = milestones.map(function (m, index) {
+      var mobileKey = index === 0 || index === milestones.length - 1 || m.key === 'ingame';
+      return '<div class="ppl-item' + (index <= reachedIndex ? ' is-reached' : '') +
+        (mobileKey ? ' is-mobile-key' : '') + '" style="left:' + m.at + '%">' +
+        '<b class="ppl-percent">' + m.at + '%</b><span class="ppl-dot"></span>' +
+        '<span class="ppl-label">' + escapeHtml(m.label) + '</span></div>';
     }).join('');
     var gw = p.portProgress.groundwork;
     var gwRows = '';
@@ -361,13 +367,13 @@
     return '<div class="card-port-progress">' +
       '<div class="card-port-score-row">' +
         '<span class="card-port-score-num">' + score.toFixed(1) + '<small>%</small></span>' +
-        '<span class="card-port-score-milestone">' + escapeHtml(scored.reachedLabel) + '</span>' +
+        '<span class="card-port-score-milestone">' + escapeHtml(reachedLabel) + '</span>' +
       '</div>' +
       '<div class="card-port-track" role="img" aria-label="移植进度 ' + score.toFixed(1) + '%">' +
         '<div class="card-port-fill progress-motion-fill" data-progress-key="score" style="--w:' + score + '%"></div>' +
         '<div class="card-port-ticks">' + ticks + '</div>' +
       '</div>' +
-      '<div class="card-port-labels">' + labels + '</div>' +
+      '<div class="card-port-labels port-progress-labels">' + labels + '</div>' +
       (hasDetails
         ? '<details class="card-port-details"' + (open ? ' open' : '') + '><summary>详情</summary>' + gwRows + works + blocking + meta + '</details>'
         : '') +

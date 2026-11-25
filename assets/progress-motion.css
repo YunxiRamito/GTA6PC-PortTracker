@@ -1,5 +1,9 @@
+/* Let the component set its own positioning over this fallback. */
+:where(.progress-motion-fill) { position: relative; }
+
 .progress-motion-fill {
   overflow: hidden;
+  will-change: width;
   transition: width 900ms cubic-bezier(.22,1,.36,1);
 }
 
@@ -9,12 +13,30 @@
 }
 
 .progress-motion-fill:not(.progress-motion-static)::after {
-  content: '';
   position: absolute;
   inset: 0;
   pointer-events: none;
+}
+
+.progress-motion-fill:not(.progress-motion-static, .hero-opening-progress-fill, .port-progress-fill)::after {
+  content: '';
   background: linear-gradient(105deg, transparent 30%, rgba(255,255,255,.48) 50%, transparent 70%);
   animation: progress-motion-shimmer 900ms cubic-bezier(.22,1,.36,1) both;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* aria-valuenow arrives with the score; a zero-width fill needs no sweep. */
+  :is(.hero-opening-progress-meter, .port-progress-track)[aria-valuenow]:not([aria-valuenow="0"])
+    > .progress-motion-fill:not(.progress-motion-static)::after {
+    content: '';
+    background: linear-gradient(105deg, transparent 31%, #ffdcee59 43%, #fff9e5c7 50%, #ffdc9b80 57%, transparent 69%);
+    animation: progress-motion-home-sweep 5.6s cubic-bezier(.4,0,.2,1) infinite;
+  }
+}
+
+@keyframes progress-motion-home-sweep {
+  from { transform: translateX(-100%); }
+  32%, to { transform: translateX(100%); }
 }
 
 @keyframes progress-motion-shimmer {
@@ -24,7 +46,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .progress-motion-fill { transition: none; }
-  .progress-motion-fill:not(.progress-motion-static)::after { content: none; }
+  .progress-motion-fill:not(.progress-motion-static)::after { content: none; animation: none; }
 }
 
 /* Reveal the existing segment pattern without resizing it. */

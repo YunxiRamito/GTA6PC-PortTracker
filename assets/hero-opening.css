@@ -64,7 +64,7 @@
 .hero-opening-progress-meter {
   position: relative;
   grid-column: 1 / -1;
-  block-size: 8px;
+  block-size: clamp(14px, 1.55vw, 18px);
   overflow: hidden;
   border-radius: 99px;
   background-color: rgba(231, 206, 255, .14);
