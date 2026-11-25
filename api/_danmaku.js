@@ -7,7 +7,7 @@ const { ContentError } = require('./_content');
 const { cleanDanmakuText, cleanDanmakuNickname } = require('./_danmaku-filter');
 const { createWordStore } = require('./_danmaku-words');
 const { createMuteStore, parseMuteDuration, UUID, SUBJECT } = require('./_danmaku-mutes');
-const { createDanmakuHistory, RETENTION_DAYS, isGroupTag } = require('./_danmaku-history');
+const { createDanmakuHistory, createPublicHistorySnapshot, RETENTION_DAYS, isGroupTag } = require('./_danmaku-history');
 const { createCommunityMuteStore } = require('./_danmaku-community-mutes');
 const { createDanmakuSettings } = require('./_danmaku-settings');
 const { createScheduledDanmaku } = require('./_danmaku-scheduled');
@@ -51,11 +51,14 @@ const PING_INTERVAL = 10_000;
 const RELAY_AVAILABILITY_WAIT = 1500;
 const REPLAY_WINDOW = 15_000;
 const HISTORY_WINDOW = 5 * 60_000;
+const ARCHIVE_WINDOW = RETENTION_DAYS * 86_400_000;
 const MAX_HISTORY = 640;
 const MAX_RECENT_BYTES = 512 * 1024;
 const MAX_ARCHIVE = 50;
 const MAX_ARCHIVE_BYTES = 64 * 1024;
 const ARCHIVE_RELAY_TIMEOUT = 3000;
+const ARCHIVE_REFRESH_INTERVAL = 30_000;
+const ARCHIVE_SUPERSEDED = Symbol('superseded history request');
 const RECENT_CACHE_TTL = 5000;
 const MAX_STREAMS = 400;
 const MAX_SENDERS = 4096;
@@ -162,6 +165,14 @@ function verifyModerationText(text, forArchive) {
   return cleanDanmakuText(original) === original;
 }
 
+function projectArchiveMessage(message) {
+  if (message.kind !== 'moderation') return message;
+  const { id, text, createdAt, kind } = message;
+  if (verifyModerationText(text, false)) {
+    return { id, text: archiveModerationText(readModerationAction(text)), createdAt, kind };
+  }
+}
+
 const validLikeCount = count => Number.isInteger(count) && count > 0 && count <= MAX_LIKES;
 
 function verifyLike(value) {
@@ -186,6 +197,7 @@ function verifyMessage(value, forArchive = false) {
   if (typeof value?.id !== 'string' || !UUID.test(value.id) || typeof value.text !== 'string' ||
       typeof value.createdAt !== 'string' || !Number.isFinite(Date.parse(value.createdAt))) return;
   const { id, text, createdAt, kind, admin, nickname, color } = value;
+  if (forArchive && new Date(createdAt).toISOString() !== createdAt) return;
   const staff = value.staff === 'moderator' ? value.staff
     : admin === true ? (value.staff === 'owner' || value.staff === 'admin' ? value.staff : undefined) : undefined;
   if (kind === 'moderation') {
@@ -246,7 +258,10 @@ function verifyCommunityVote(value) {
   return { messageId, votes, threshold, expiresAt, status };
 }
 
-function createRelay({ origin, fetchUpstream, relayKey, publish, removeMessages, notify, onAvailability, onLike, onCommunityVote, now, offlineEnabled }) {
+function createRelay({
+  origin, fetchUpstream, relayKey, publish, removeMessages, notify, onAvailability, onLike, onCommunityVote, now,
+  offlineEnabled, initiallyClosed, onPrimaryAvailability, savePrimaryArchive,
+}) {
   let controller;
   let retryTimer;
   let lastId;
@@ -254,19 +269,25 @@ function createRelay({ origin, fetchUpstream, relayKey, publish, removeMessages,
   let recentCache;
   let recentCacheAt = 0;
   let recentRequest;
+  let archiveRequest;
+  let archiveController;
+  let archiveRefresh;
   let historyRevision = 0;
   let upstreamActive;
-  let lastPrimaryActive;
+  let lastPrimaryActive = initiallyClosed ? false : undefined;
   let handshakeRejected = false;
   let outageDetected = false;
   let availabilityReady;
   let pendingLikes = 0;
   const statusRequests = new Map();
 
-  function invalidateRecent() {
+  function invalidateHistoryReads() {
     historyRevision++;
     recentCache = undefined;
     recentRequest = undefined;
+    archiveController?.abort();
+    archiveController = undefined;
+    archiveRequest = undefined;
   }
 
   function isOffline() {
@@ -283,8 +304,16 @@ function createRelay({ origin, fetchUpstream, relayKey, publish, removeMessages,
     upstreamActive = active;
     handshakeRejected = rejected;
     outageDetected = outage;
-    if (typeof active === 'boolean') lastPrimaryActive = active;
-    invalidateRecent();
+    clearInterval(archiveRefresh);
+    invalidateHistoryReads();
+    if (typeof active === 'boolean') {
+      lastPrimaryActive = active;
+      onPrimaryAvailability?.(active);
+    }
+    if (active === true && savePrimaryArchive) {
+      void history();
+      archiveRefresh = setInterval(() => void history(), ARCHIVE_REFRESH_INTERVAL).unref();
+    }
     if (wasActive !== isActive()) onAvailability(isActive());
   }
 
@@ -348,7 +377,7 @@ function createRelay({ origin, fetchUpstream, relayKey, publish, removeMessages,
           pending += decoder.decode(value, { stream: true });
           // The fixed upstream writes LF-delimited, single-line JSON frames.
           let boundary;
-          while ((boundary = pending.indexOf('\n\n')) !== -1) {
+          while (!attempt.signal.aborted && (boundary = pending.indexOf('\n\n')) !== -1) {
             if (boundary > 4096) return;
             const frame = pending.slice(0, boundary);
             pending = pending.slice(boundary + 2);
@@ -367,8 +396,11 @@ function createRelay({ origin, fetchUpstream, relayKey, publish, removeMessages,
               if (relayKey && status && typeof value.subject === 'string' && SUBJECT.test(value.subject)) notify(value.subject, status);
             } else if (lines.includes('event: remove')) {
               if (Array.isArray(value?.ids) && value.ids.length <= MAX_HISTORY) {
-                invalidateRecent();
-                removeMessages(value.ids.filter(id => typeof id === 'string' && UUID.test(id)));
+                const ids = value.ids.filter(id => typeof id === 'string' && UUID.test(id));
+                if (ids.length) {
+                  invalidateHistoryReads();
+                  await removeMessages(ids);
+                }
               }
             } else if (lines.includes('event: community-vote')) {
               const vote = verifyCommunityVote(value);
@@ -380,7 +412,7 @@ function createRelay({ origin, fetchUpstream, relayKey, publish, removeMessages,
               const message = verifyMessage(value);
               if (message) {
                 lastId = message.id;
-                if (message.kind === 'moderation') invalidateRecent();
+                if (message.kind === 'moderation') invalidateHistoryReads();
                 publish(message);
               }
             }
@@ -559,8 +591,7 @@ function createRelay({ origin, fetchUpstream, relayKey, publish, removeMessages,
     return { status: 503, error: LIKE_UNAVAILABLE };
   }
 
-  async function loadMessages(pathname, maxBytes, timeoutMs, maxMessages = Infinity) {
-    const attempt = new AbortController();
+  async function loadMessages(pathname, maxBytes, timeoutMs, maxMessages = Infinity, attempt = new AbortController()) {
     const timeout = setTimeout(() => attempt.abort(), timeoutMs);
     timeout.unref();
     try {
@@ -573,9 +604,12 @@ function createRelay({ origin, fetchUpstream, relayKey, publish, removeMessages,
       if (body === null || attempt.signal.aborted) return null;
       const payload = JSON.parse(body);
       if (!Array.isArray(payload?.messages) || payload.messages.length > maxMessages) return null;
+      if (pathname === HISTORY_PATH && payload.partial !== undefined && typeof payload.partial !== 'boolean') return null;
+      if (pathname === HISTORY_PATH && payload.partial) return ARCHIVE_SUPERSEDED;
       const messages = new Map();
       for (const item of payload.messages) {
         const message = verifyMessage(item, pathname === HISTORY_PATH);
+        if (!message && pathname === HISTORY_PATH) return null;
         if (message) messages.set(message.id, message);
       }
       return [...messages.values()];
@@ -606,11 +640,23 @@ function createRelay({ origin, fetchUpstream, relayKey, publish, removeMessages,
     return request;
   }
 
-  async function history() {
+  function history() {
+    if (archiveRequest) return archiveRequest;
     const revision = historyRevision;
-    const messages = await loadMessages(HISTORY_PATH, MAX_ARCHIVE_BYTES, ARCHIVE_RELAY_TIMEOUT, MAX_ARCHIVE);
-    // Never serve an in-flight snapshot that crossed a withdrawal or availability change.
-    return revision === historyRevision ? messages : [];
+    const attempt = archiveController = new AbortController();
+    const request = loadMessages(HISTORY_PATH, MAX_ARCHIVE_BYTES, ARCHIVE_RELAY_TIMEOUT, MAX_ARCHIVE, attempt).then(async messages => {
+      // A snapshot that crossed a withdrawal or availability change cannot replace the last good one.
+      if (revision !== historyRevision) return ARCHIVE_SUPERSEDED;
+      if (Array.isArray(messages) && savePrimaryArchive) await savePrimaryArchive(messages);
+      return revision === historyRevision ? messages : ARCHIVE_SUPERSEDED;
+    }).finally(() => {
+      if (archiveRequest === request) {
+        archiveRequest = undefined;
+        archiveController = undefined;
+      }
+    });
+    archiveRequest = request;
+    return request;
   }
 
   async function fetchStatus(subject) {
@@ -671,6 +717,10 @@ function createDanmaku({
 }) {
   const fallbackHistory = upstreamOrigin && fallbackDir
     ? createDanmakuHistory({ filePath: path.join(fallbackDir, 'mirror-danmaku-history.jsonl'), now }) : null;
+  const upstreamArchive = fallbackHistory && createPublicHistorySnapshot({
+    filePath: path.join(fallbackDir, 'mirror-danmaku-public-history.json'),
+    maxMessages: MAX_ARCHIVE, maxBytes: MAX_ARCHIVE_BYTES, projectMessage: message => verifyMessage(message, true),
+  });
   const offlineArchive = new Map();
   const offlineNonces = new Set();
   const knownMutes = new Map();
@@ -707,12 +757,15 @@ function createDanmaku({
   let scheduled;
   let historyCleanup;
   let historyClose;
+  let historyRestoreFailed = false;
   let offlineWrites = Promise.resolve();
   const settings = upstreamOrigin ? null : createDanmakuSettings({ filePath: settingsFile, now, onAvailability: broadcastAvailability });
   const relay = upstreamOrigin ? createRelay({
     origin: upstreamOrigin, fetchUpstream, relayKey, publish, removeMessages, notify,
     onAvailability: broadcastAvailability, onLike: receiveLike, onCommunityVote: broadcastCommunityVote, now,
-    offlineEnabled: Boolean(fallbackHistory),
+    offlineEnabled: Boolean(fallbackHistory), initiallyClosed: upstreamArchive?.read()?.closed,
+    onPrimaryAvailability: upstreamArchive ? recordPrimaryAvailability : undefined,
+    savePrimaryArchive: upstreamArchive ? savePrimaryArchive : undefined,
   }) : null;
   if (settings && scheduledFile) {
     scheduled = createScheduledDanmaku({ filePath: scheduledFile, now, isActive, publish, isBlocked: text => words.matches(text) });
@@ -726,18 +779,30 @@ function createDanmaku({
         : { maxAge: HISTORY_WINDOW, limit: MAX_HISTORY });
       // The journal also holds moderation notices, including ones created while the feed was closed.
       const visible = records.filter(({ message, subject, deviceSubject }) =>
-        message.kind !== 'moderation' &&
-        !(subject && sendMuteStatus(subject).muted) &&
-        !(deviceSubject && deviceSubject !== subject && sendMuteStatus(deviceSubject).muted));
+        message.kind !== 'moderation' && !replayMuted(subject, deviceSubject));
       // Seed the snapshot directly so startup does not append to the journal or emit SSE events.
       for (const record of visible) {
         const { message } = record;
         if (fallbackHistory) offlineArchive.set(message.id, anonymousMirrorMessage(message));
         else history.set(message.id, record);
       }
+      if (archive) {
+        const archived = replayJournal.recentForReplay({
+          limit: MAX_ARCHIVE,
+          include: (message, subject, deviceSubject) =>
+            projectArchiveMessage(message) && !replayMuted(subject, deviceSubject),
+        });
+        for (const record of archived) rememberArchive(history.get(record.message.id) ?? record);
+      }
     } catch (error) {
+      historyRestoreFailed = true;
       console.error('Cannot restore recent danmaku:', error.code || error.name);
     }
+  }
+
+  function replayMuted(subject, deviceSubject) {
+    return Boolean((subject && sendMuteStatus(subject).muted) ||
+      (deviceSubject && deviceSubject !== subject && sendMuteStatus(deviceSubject).muted));
   }
 
   function isActive(at) {
@@ -764,6 +829,11 @@ function createDanmaku({
       if (time - receivedAt >= HISTORY_WINDOW) history.delete(id);
     }
     while (history.size > MAX_HISTORY) history.delete(history.keys().next().value);
+    if (archive) {
+      for (const [id, { receivedAt }] of archive) {
+        if (time - receivedAt >= ARCHIVE_WINDOW) archive.delete(id);
+      }
+    }
     for (const [id, removedAt] of removed) {
       if (time - removedAt >= HISTORY_WINDOW || removed.size > MAX_HISTORY) removed.delete(id);
       else break;
@@ -826,7 +896,14 @@ function createDanmaku({
     return res.end(bytes);
   }
 
-  function publish(message, subject, time = now(), archiveText, deviceSubject, clientIP) {
+  function rememberArchive(record) {
+    const message = projectArchiveMessage(record.message);
+    if (!message) return;
+    archive.set(message.id, message === record.message ? record : { ...record, message });
+    if (archive.size > MAX_ARCHIVE) archive.delete(archive.keys().next().value);
+  }
+
+  function publish(message, subject, time = now(), deviceSubject, clientIP) {
     const active = isActive(time);
     if (!active && message.kind !== 'moderation') return false;
     pruneEventReplay(time);
@@ -840,11 +917,7 @@ function createDanmaku({
       });
     }
     history.set(message.id, record);
-    if (archive && (message.kind !== 'moderation' || archiveText)) {
-      const archived = archiveText ? { ...record, message: { ...message, text: archiveText } } : record;
-      archive.set(message.id, archived);
-      if (archive.size > MAX_ARCHIVE) archive.delete(archive.keys().next().value);
-    }
+    if (archive) rememberArchive(record);
     pruneHistory(time);
     // Keep moderation history even while the public feed is closed.
     if (!active) return true;
@@ -940,12 +1013,8 @@ function createDanmaku({
     }
   }
 
-  function removeMessages(ids) {
-    if (moderationHistory && ids.length) {
-      void moderationHistory.remove(ids).catch(error => {
-        console.error('Cannot update danmaku history:', error.code || error.name);
-      });
-    }
+  async function removeMessages(ids) {
+    const committed = ids.length ? moderationHistory?.remove(ids) : undefined;
     for (const id of ids) {
       history.delete(id);
       archive?.delete(id);
@@ -954,6 +1023,14 @@ function createDanmaku({
       remoteLikes?.delete(id);
       removed.set(id, now());
     }
+    let snapshotWrite;
+    const snapshot = upstreamArchive?.read();
+    if (snapshot) {
+      const { closed, messages } = snapshot;
+      const remaining = messages.filter(message => !removed.has(message.id));
+      if (remaining.length !== messages.length) snapshotWrite = upstreamArchive.write({ closed, messages: remaining });
+    }
+    await Promise.all([committed, snapshotWrite]);
     // Leave each frame small enough for the mirror's streaming parser.
     for (let index = 0; index < ids.length; index += 50) {
       const frame = event('remove', { ids: ids.slice(index, index + 50) });
@@ -1188,23 +1265,61 @@ function createDanmaku({
   }
 
   function pruneOfflineArchive(time) {
-    const cutoff = time - RETENTION_DAYS * 86_400_000;
+    const cutoff = time - ARCHIVE_WINDOW;
     for (const [id, message] of offlineArchive) {
       if (Date.parse(message.createdAt) <= cutoff) offlineArchive.delete(id);
     }
   }
 
+  function visibleUpstreamArchive(messages, time) {
+    return messages.filter(message => {
+      const timestamp = Date.parse(message.createdAt);
+      return !removed.has(message.id) && timestamp > time - ARCHIVE_WINDOW && timestamp <= time + 30_000;
+    });
+  }
+
+  function savePrimaryArchive(messages) {
+    return upstreamArchive.write({ closed: false, messages: visibleUpstreamArchive(messages, now()) });
+  }
+
+  function recordPrimaryAvailability(active) {
+    if (!active) void upstreamArchive.write({ closed: true, messages: [] });
+  }
+
   async function sendHistory(req, res) {
+    if (isActive()) {
+      if (historyRestoreFailed) return reject(res, 503, HISTORY_UNAVAILABLE);
+      try { await (moderationHistory ?? fallbackHistory)?.flush(); }
+      catch { return reject(res, 503, HISTORY_UNAVAILABLE); }
+    }
+    if (res.destroyed) return;
     const upstreamMessages = relay?.isPrimaryActive() ? await relay.history() : null;
     if (res.destroyed) return;
-    if (!isActive()) return sendJson(res, 200, { messages: [] }, {}, req);
-    if (relay && upstreamMessages === null && !relay.isOffline()) return reject(res, 503, HISTORY_UNAVAILABLE);
-    pruneOfflineArchive(now());
-    const source = relay ? [...(upstreamMessages ?? []), ...offlineArchive.values()] : [...archive.values()].reverse().map(record => record.message);
+    const time = now();
+    if (!isActive(time) || (upstreamMessages === ARCHIVE_SUPERSEDED && !relay.isOffline())) {
+      return sendJson(res, 200, { messages: [], partial: true }, {}, req);
+    }
+    pruneHistory(time);
+    let source;
+    let partial = false;
+    if (relay) {
+      partial = !relay.isPrimaryActive() || !Array.isArray(upstreamMessages);
+      const snapshot = upstreamArchive?.read();
+      if (partial && !snapshot) return reject(res, 503, HISTORY_UNAVAILABLE);
+      const upstream = visibleUpstreamArchive(partial ? snapshot.messages : upstreamMessages, time);
+      pruneOfflineArchive(time);
+      const merged = new Map(upstream.map(message => [message.id, message]));
+      for (const [id, message] of offlineArchive) {
+        if (!merged.has(id)) merged.set(id, message);
+      }
+      source = [...merged.values()];
+    } else {
+      source = [...archive.values()].reverse().map(record => record.message);
+    }
     const messages = source.filter(message => !removed.has(message.id))
       .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)).slice(0, MAX_ARCHIVE);
     if (relay) messages.forEach(noteRelayAvatar);
-    sendJson(res, 200, { messages }, {}, req);
+    sendJson(res, 200, { messages, partial }, {}, req);
   }
 
   async function readBody(req) {
@@ -1363,7 +1478,7 @@ function createDanmaku({
       }
       vote.status = 'passed';
       broadcastCommunityVote(communityVoteState(vote));
-      removeMessages([messageId]);
+      await removeMessages([messageId]);
       for (const subject of targets) notify(subject, sendMuteStatus(subject));
     } else {
       broadcastCommunityVote(communityVoteState(vote));
@@ -1426,7 +1541,7 @@ function createDanmaku({
 
   function publishText(text, time, subject, options) {
     const message = makeMessage(text, time, options);
-    publish(message, subject, time, undefined, options.deviceSubject, options.ip);
+    publish(message, subject, time, options.deviceSubject, options.ip);
     return message;
   }
 
@@ -1434,7 +1549,7 @@ function createDanmaku({
     const time = now();
     const text = original ? `弹幕“${original}”${action}` : `弹幕${action}`;
     const message = { id: randomUUID(), text, createdAt: new Date(time).toISOString(), kind: 'moderation' };
-    publish(message, undefined, time, archiveModerationText(action));
+    publish(message, undefined, time);
   }
 
   function accept(text, quota, rawNickname, time, rateLimit, groupTag) {
@@ -1500,7 +1615,7 @@ function createDanmaku({
         offlineArchive.set(result.message.id, result.message);
         if (offlineArchive.size > MAX_ARCHIVE) offlineArchive.delete(offlineArchive.keys().next().value);
       }
-      publish(result.message, subject, time, undefined, deviceSubject, clientIP);
+      publish(result.message, subject, time, deviceSubject, clientIP);
     }
     return sendResult(res, result);
   }
@@ -1659,7 +1774,7 @@ function createDanmaku({
       requireOfflineModeration();
       if (!fallbackHistory.getForModeration(messageId)) throw new ContentError(404, '未找到这条镜像离线弹幕');
       await fallbackHistory.remove([messageId]);
-      removeMessages([messageId]);
+      await removeMessages([messageId]);
       return { messageId };
     });
   }
@@ -1679,8 +1794,9 @@ function createDanmaku({
       if (!deviceSubject) throw new ContentError(409, '访客尚无设备标识，无法单独禁言');
       const mute = mutes.get(deviceSubject) ?? await mutes.mute(deviceSubject, duration, message);
       broadcastMute(deviceSubject, { muted: true, expiresAt: mute.expiresAt });
-      await fallbackHistory.remove([messageId]);
-      removeMessages([messageId]);
+      const ids = fallbackHistory.findBySubjects([deviceSubject]).map(record => record.message.id);
+      await fallbackHistory.remove(ids);
+      await removeMessages(ids);
       return { messageId, expiresAt: mute.expiresAt };
     });
   }
@@ -1703,7 +1819,11 @@ function createDanmaku({
     for (const records of [history, archive]) {
       for (const [id, entry] of records) if (blockedSubjects.has(entry.subject) || (entry.deviceSubject && blockedSubjects.has(entry.deviceSubject))) ids.add(id);
     }
-    removeMessages([...ids]);
+    if (moderationHistory) {
+      await moderationHistory.flush();
+      for (const { message } of moderationHistory.findBySubjects(subjects)) ids.add(message.id);
+    }
+    await removeMessages([...ids]);
     for (const subject of subjects) notify(subject, { muted: true, expiresAt: mute.expiresAt });
     publishModeration(mute.message?.text, banNotice(mute.duration));
     return mute;
@@ -1731,19 +1851,25 @@ function createDanmaku({
     }
   }
 
+  function disconnectClients() {
+    for (const res of clients.keys()) res.destroy();
+  }
+
   function close() {
+    disconnectClients();
     scheduled?.stop();
     settings?.stop();
     clearInterval(heartbeat);
     for (const vote of communityVotes.values()) clearTimeout(vote.timer);
     clearInterval(historyCleanup);
     historyCleanup = undefined;
-    const closeHistory = fallbackHistory ? () => offlineWrites.then(() => fallbackHistory.close()) : () => moderationHistory?.close();
+    relay?.stop();
+    const closeHistory = fallbackHistory
+      ? () => offlineWrites.then(() => fallbackHistory.close()).finally(() => upstreamArchive.flush())
+      : () => moderationHistory?.close();
     historyClose ??= closeHistory()?.catch(error => {
       console.error('Cannot flush danmaku history:', error.code || error.name);
     });
-    relay?.stop();
-    for (const res of clients.keys()) res.destroy();
     return historyClose;
   }
 
@@ -1766,7 +1892,7 @@ function createDanmaku({
   }
 
   return {
-    handle, start, close, sendAdmin, sendMember, validateNickname, muteMessage, liftMute, listMessages, listModerationHistory, issueBrowserDevice,
+    handle, start, close, disconnectClients, sendAdmin, sendMember, validateNickname, muteMessage, liftMute, listMessages, listModerationHistory, issueBrowserDevice,
     listOfflineMessages, muteOfflineMessage, removeOfflineMessage,
     accountDeviceSubject(req) { const device = browserDevice(req); return device && senderSecret ? distinctSubject('device', device) : undefined; },
     isDeviceMuted(req) { return browserDevices(req).some(device => mutes?.get(distinctSubject('device', device))); },

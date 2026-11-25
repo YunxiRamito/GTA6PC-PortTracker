@@ -84,6 +84,27 @@ function line(value) {
   return bytes;
 }
 
+function readHistoryFile(file, maxBytes) {
+  const stat = fs.lstatSync(file);
+  if (!stat.isFile() || stat.size > maxBytes || stat.size < 1) throw new Error('Invalid history file');
+  // O_NONBLOCK prevents a substituted FIFO from blocking startup.
+  const fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK || 0));
+  try {
+    if (!fs.fstatSync(fd).isFile()) throw new Error('Invalid history file');
+    const data = Buffer.alloc(stat.size + 1);
+    let offset = 0;
+    while (offset < data.length) {
+      const count = fs.readSync(fd, data, offset, data.length - offset, null);
+      if (!count) break;
+      offset += count;
+    }
+    if (offset !== stat.size) throw new Error('History changed while loading');
+    return data.subarray(0, offset);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 function createDanmakuHistory({ filePath, now = Date.now } = {}) {
   if (typeof filePath !== 'string' || !filePath || typeof now !== 'function') throw new TypeError('filePath and now are required');
   const file = path.resolve(filePath);
@@ -123,25 +144,8 @@ function createDanmakuHistory({ filePath, now = Date.now } = {}) {
   }
 
   try {
-    const stat = fs.lstatSync(file);
-    if (!stat.isFile() || stat.size > MAX_FILE_BYTES || stat.size < 1) throw new Error('Invalid history file');
-    // O_NONBLOCK prevents a substituted FIFO from blocking startup.
-    const fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK || 0));
-    let data;
-    try {
-      if (!fs.fstatSync(fd).isFile()) throw new Error('Invalid history file');
-      data = Buffer.alloc(stat.size + 1);
-      let offset = 0;
-      while (offset < data.length) {
-        const count = fs.readSync(fd, data, offset, data.length - offset, null);
-        if (!count) break;
-        offset += count;
-      }
-      if (offset !== stat.size) throw new Error('History changed while loading');
-    } finally {
-      fs.closeSync(fd);
-    }
-    size = stat.size;
+    const data = readHistoryFile(file, MAX_FILE_BYTES);
+    size = data.length;
     if (data[size - 1] !== 10) throw new Error('Incomplete history log');
     const lines = data.subarray(0, size).toString('utf8').split('\n');
     lines.pop();
@@ -264,7 +268,7 @@ function createDanmakuHistory({ filePath, now = Date.now } = {}) {
   }
 
   // Internal startup snapshot in journal order; never return source IPs to the replay buffer.
-  function recentForReplay({ maxAge = RETENTION, limit }) {
+  function recentForReplay({ maxAge = RETENTION, limit, include }) {
     prune();
     if (!Number.isSafeInteger(maxAge) || maxAge < 1 || maxAge > RETENTION ||
         !Number.isSafeInteger(limit) || limit < 1 || limit > MAX_RECORDS) throw invalid();
@@ -272,7 +276,8 @@ function createDanmakuHistory({ filePath, now = Date.now } = {}) {
     const cutoff = current - maxAge;
     const recent = [];
     for (const record of records.values()) {
-      if (record.receivedAt > cutoff && record.receivedAt <= current) recent.push(record);
+      if (record.receivedAt > cutoff && record.receivedAt <= current &&
+          (!include || include(record.message, record.subject, record.deviceSubject))) recent.push(record);
     }
     return recent.slice(-limit).map(record => ({
       ...publicRecord(record), subject: record.subject, deviceSubject: record.deviceSubject,
@@ -378,4 +383,64 @@ function createDanmakuHistory({ filePath, now = Date.now } = {}) {
   return { add, recentForReplay, get, getForModeration, findBySubjects, remove, list, flush, purgeExpired, close };
 }
 
-module.exports = { createDanmakuHistory, RETENTION_DAYS, isGroupTag };
+// The mirror stores only the validated public drawer response, apart from its local moderation journal.
+function createPublicHistorySnapshot({ filePath, maxMessages, maxBytes, projectMessage }) {
+  let snapshot = { version: 1, closed: false, messages: [] };
+  let saved;
+  let pending = Promise.resolve();
+  const encode = value => JSON.stringify(value) + '\n';
+
+  try {
+    const data = readHistoryFile(filePath, maxBytes).toString('utf8');
+    const value = JSON.parse(data);
+    if (value?.version !== 1 || typeof value.closed !== 'boolean' || !Array.isArray(value.messages) ||
+        value.messages.length > maxMessages || (value.closed && value.messages.length)) {
+      throw new Error('Invalid public history snapshot');
+    }
+    const messages = value.messages.map(projectMessage);
+    if (messages.some(message => !message)) throw new Error('Invalid public history message');
+    snapshot = { version: 1, closed: value.closed, messages };
+    saved = data;
+  } catch (error) {
+    if (error.code !== 'ENOENT') {
+      snapshot = null;
+      console.error('Cannot read mirror public danmaku history:', error.code || error.name);
+    }
+  }
+
+  let requested = saved;
+  function write({ closed, messages }) {
+    const next = { version: 1, closed, messages };
+    const bytes = encode(next);
+    snapshot = next;
+    requested = bytes;
+    pending = pending.then(async () => {
+      if (bytes !== requested || bytes === saved) return;
+      const temp = `${filePath}.${randomUUID()}.tmp`;
+      try {
+        if (Buffer.byteLength(bytes) > maxBytes) throw new Error('Oversized public history snapshot');
+        await fs.promises.mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 });
+        const handle = await fs.promises.open(temp, 'wx', 0o600);
+        try {
+          await handle.writeFile(bytes);
+          await handle.sync();
+        } finally {
+          await handle.close();
+        }
+        await fs.promises.rename(temp, filePath);
+        saved = bytes;
+      } catch (error) {
+        await fs.promises.unlink(temp).catch(() => {});
+        // An older snapshot may contain a withdrawal or predate a closure.
+        await fs.promises.unlink(filePath).catch(() => {});
+        saved = undefined;
+        console.error('Cannot save mirror public danmaku history:', error.code || error.name);
+      }
+    });
+    return pending;
+  }
+
+  return { read: () => snapshot, write, flush: () => pending };
+}
+
+module.exports = { createDanmakuHistory, createPublicHistorySnapshot, RETENTION_DAYS, isGroupTag };

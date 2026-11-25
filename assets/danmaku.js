@@ -26,6 +26,11 @@
   const HISTORY_WINDOW_MS = 5 * 60_000;
   const MAX_HISTORY_QUEUE = 640;
   const DRAWER_LIMIT = 50;
+  const DRAWER_REQUEST_TIMEOUT = 6500;
+  const DRAWER_RECENT_TIMEOUT = 7500;
+  const DRAWER_RETRY_DELAYS = [1200, 3000];
+  // The mirror's live relay can be reconnecting even after the primary page is healthy.
+  const MIRROR_DRAWER_RETRY_DELAYS = [...DRAWER_RETRY_DELAYS, 5500, 7500];
   const DRAWER_DATE = new Intl.DateTimeFormat('zh-CN', {
     timeZone: 'Asia/Shanghai', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
   });
@@ -158,7 +163,12 @@
   let closeTimer;
   let optionsCloseTimer;
   let historyCloseTimer;
-  let historyRequest;
+  let historyLoad;
+  let historyPhase = 'loading';
+  let historyNotice;
+  let historyStatusMessage;
+  let historyRevision = 0;
+  let historyStreamInterrupted = false;
   const historyRows = new Map();
   let nextAvailability;
   let closurePending = false;
@@ -199,6 +209,7 @@
   let member = null;
   let moderator = false;
   let gold = false;
+  const isMirror = document.documentElement.hasAttribute('data-site-mirror');
   let mirrorPrimaryUnavailable = document.documentElement.hasAttribute('data-primary-unavailable');
   let loginRequired = false;
   let checkedAdminAt = 0;
@@ -298,14 +309,7 @@
     if (typeof active !== 'boolean' || active === nextAvailability) return;
     const wasClosed = nextAvailability === false;
     nextAvailability = active;
-    if (historyIsOpen()) {
-      if (!active) {
-        clearDrawerHistory();
-        historyStatus.textContent = '弹幕已暂停。';
-      } else if (wasClosed) {
-        void loadDrawerHistory();
-      }
-    }
+    if (!active || wasClosed) restartDrawerHistory();
     input.placeholder = active ? '\u8BF4\u70B9\u4EC0\u4E48\u2026' : '\u5B9E\u65F6\u5F39\u5E55\u5DF2\u6682\u505C';
     input.readOnly = !active;
     updateInputGate();
@@ -460,7 +464,8 @@
       });
       if (!response.ok) return;
       const payload = await response.json();
-      if (liveRevision !== revisionAtStart || !canReceive() || !Array.isArray(payload?.messages) ||
+      if (replayController !== controller || controller.signal.aborted || liveRevision !== revisionAtStart ||
+          !canReceive() || !Array.isArray(payload?.messages) ||
           payload.messages.length > MAX_HISTORY_QUEUE) return;
 
       const currentTime = Date.now();
@@ -468,7 +473,7 @@
       const unique = new Map();
       for (const candidate of payload.messages) {
         const item = parseItem(candidate);
-        if (!item || seenIds.has(item.id)) continue;
+        if (!item || seenIds.has(item.id) || withdrawnIds.has(item.id)) continue;
         const createdAt = Date.parse(item.createdAt);
         if (!Number.isFinite(createdAt) || createdAt < cutoff || createdAt > currentTime + 30_000) continue;
         if (!unique.has(item.id)) unique.set(item.id, item);
@@ -573,6 +578,10 @@
     connection.onopen = () => {
       if (stream !== connection) return;
       setFeedState(display.checked ? '弹幕已连接' : '已关闭显示');
+      if (historyStreamInterrupted) {
+        historyStreamInterrupted = false;
+        restartDrawerHistory();
+      }
       scheduleHistoricalReplay();
       void refreshMute();
     };
@@ -608,13 +617,17 @@
       try {
         const item = parseItem(JSON.parse(event.data));
         if (item?.moderation && signedIn()) void refreshMute();
-        if (!item || !canShowDanmaku() || (!display.checked && !historyIsOpen())) return;
+        if (!item || !canShowDanmaku()) return;
         if (display.checked) handleLiveItem(item);
         else addDrawerMessage(item);
       } catch { /* Ignore malformed events; the next event remains usable. */ }
     };
     connection.onerror = () => {
       if (stream !== connection) return;
+      if (!historyStreamInterrupted) {
+        historyStreamInterrupted = true;
+        restartDrawerHistory();
+      }
       if (connection.readyState === EventSource.CLOSED) {
         closeStream();
         setFeedState('连接中断，稍后重试');
@@ -1340,10 +1353,7 @@
     likes.setAttribute('aria-pressed', String(reacted.has(item.id)));
   }
 
-  function appendDrawerMessage(item, latest = false) {
-    if (withdrawnIds.has(item.id) || historyRows.has(item.id)) return;
-    if (!latest && historyRows.size >= DRAWER_LIMIT) return;
-
+  function createDrawerEntry(item) {
     const row = document.createElement('li');
     row.className = 'danmaku-history-item';
     row.toggleAttribute('data-admin', item.admin);
@@ -1388,75 +1398,213 @@
     row.append(meta, text);
     if (communityVote) row.append(communityVote);
     const entry = { item, row, likes, communityVote };
-    historyRows.set(item.id, entry);
     row.dataset.messageId = item.id;
     paintDrawerLikes(entry);
-    if (!latest) {
-      historyList.append(row);
+    return entry;
+  }
+
+  function mergeDrawerMessages(items, replaceThrough = -1) {
+    if (!items.length && replaceThrough < 0) return;
+    const received = new Map(items.filter(item => !withdrawnIds.has(item.id)).map(item => [item.id, item]));
+    const merged = new Map();
+    for (const [id, { item, revision }] of historyRows) {
+      if (revision > replaceThrough) merged.set(id, item);
+    }
+    for (const [id, item] of received) merged.set(id, item);
+    const revision = ++historyRevision;
+    const ordered = [...merged.values()]
+      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)).slice(0, DRAWER_LIMIT);
+    const kept = new Set(ordered.map(item => item.id));
+    const scrollTop = historyList.scrollTop;
+    const listTop = scrollTop > 0 ? historyList.getBoundingClientRect().top : 0;
+    const anchor = scrollTop > 0 && [...historyList.children].find(row => row.getBoundingClientRect().bottom > listTop);
+    const anchorTop = anchor && anchor.offsetTop;
+    for (const [id, { row }] of historyRows) {
+      if (kept.has(id)) continue;
+      historyRows.delete(id);
+      row.remove();
+    }
+    ordered.forEach((item, index) => {
+      let entry = historyRows.get(item.id);
+      if (!entry) {
+        entry = createDrawerEntry(item);
+        historyRows.set(item.id, entry);
+      } else if (item.likes > entry.item.likes) {
+        entry.item.likes = item.likes;
+        paintDrawerLikes(entry);
+      }
+      if (received.has(item.id)) entry.revision = revision;
+      const before = historyList.children[index] ?? null;
+      if (entry.row !== before) historyList.insertBefore(entry.row, before);
+    });
+    if (anchor?.isConnected) historyList.scrollTop = scrollTop + anchor.offsetTop - anchorTop;
+  }
+
+  function paintHistoryStatus(phase = historyPhase) {
+    historyPhase = phase;
+    historyList.hidden = phase === 'paused';
+    const hasRows = historyRows.size > 0;
+    const status = {
+      loading: hasRows ? '正在更新历史弹幕…' : '正在读取历史弹幕…',
+      retrying: '暂时无法读取完整历史，正在重试…',
+      unavailable: '暂时无法读取完整历史。重新打开可重试。',
+      paused: '弹幕已暂停。',
+      ready: hasRows ? '' : '还没有历史弹幕。',
+    }[phase];
+    if (historyStatusMessage === status) return;
+    historyStatusMessage = status;
+    historyNotice?.cancel();
+    historyNotice = undefined;
+    if (reducedMotion.matches || !historyIsOpen()) {
+      historyStatus.textContent = status;
       return;
     }
-    const offset = historyList.scrollTop;
-    historyList.prepend(row);
-    if (offset > 0) {
-      const nextRow = row.nextElementSibling;
-      historyList.scrollTop = offset + (nextRow ? nextRow.offsetTop - row.offsetTop : 0);
-    }
-    if (historyRows.size > DRAWER_LIMIT) {
-      const last = historyList.lastElementChild;
-      historyRows.delete(last.dataset.messageId);
-      last.remove();
-    }
+    if (status) historyStatus.textContent = status;
+    const animation = historyStatus.animate([{ opacity: status ? 0 : 1 }, { opacity: status ? 1 : 0 }], {
+      duration: status ? 160 : 120, easing: 'cubic-bezier(.2,.65,.25,1)',
+    });
+    historyNotice = animation;
+    if (!status) animation.onfinish = () => {
+      if (historyNotice !== animation) return;
+      historyStatus.textContent = '';
+      historyNotice = undefined;
+    };
   }
 
   function addDrawerMessage(item) {
-    if (!historyIsOpen() || nextAvailability === false) return;
+    if (nextAvailability === false) return;
     if (item.moderation) {
-      void loadDrawerHistory(true);
+      if (historyLoad) historyLoad.refreshAfter = true;
+      else loadDrawerHistory();
       return;
     }
-    appendDrawerMessage(item, true);
-    if (historyRows.size) historyStatus.textContent = '';
+    mergeDrawerMessages([item]);
+    if (historyIsOpen()) paintHistoryStatus();
   }
 
-  function clearDrawerHistory() {
-    historyRequest?.abort();
-    historyRequest = undefined;
-    historyRows.clear();
-    historyList.replaceChildren();
+  function cancelDrawerHistory() {
+    const load = historyLoad;
+    historyLoad = undefined;
+    if (!load) return;
+    clearTimeout(load.timer);
+    load.controller.abort();
   }
 
-  async function loadDrawerHistory(keepRows = false) {
-    if (keepRows) historyRequest?.abort();
-    else clearDrawerHistory();
-    if (nextAvailability === false) {
-      historyStatus.textContent = '弹幕已暂停。';
+  function restartDrawerHistory() {
+    cancelDrawerHistory();
+    loadDrawerHistory();
+  }
+
+  function loadDrawerHistory() {
+    if (!historyIsOpen() || document.hidden || historyLoad) return;
+    if (!isMirror && nextAvailability === false) {
+      paintHistoryStatus('paused');
       return;
     }
-    if (!keepRows || !historyRows.size) historyStatus.textContent = '正在读取历史弹幕…';
+    if (navigator.onLine === false) {
+      paintHistoryStatus('unavailable');
+      return;
+    }
+    const load = { controller: new AbortController(), attempt: 0, sawEmpty: false };
+    historyLoad = load;
+    paintHistoryStatus('loading');
+    void requestDrawerHistory(load);
+  }
+
+  async function readPublicHistory(endpoint, limit, signal, timeoutMs = DRAWER_REQUEST_TIMEOUT) {
     const controller = new AbortController();
-    historyRequest = controller;
-    const timeout = setTimeout(() => controller.abort(), 5500);
+    const abort = () => controller.abort();
+    signal.addEventListener('abort', abort, { once: true });
+    const timeout = setTimeout(abort, timeoutMs);
     try {
-      const response = await fetch('/api/danmaku/history', {
-        credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' }, signal: controller.signal,
+      const response = await fetch(endpoint, {
+        credentials: 'same-origin', cache: 'no-store', redirect: 'error',
+        headers: { Accept: 'application/json' }, signal: controller.signal,
       });
-      if (!response.ok) throw new Error('History is unavailable');
+      if (response.status !== 200) return { retryable: response.status >= 500 || response.status === 408 };
       const payload = await response.json();
-      if (historyRequest !== controller) return;
-      if (!Array.isArray(payload?.messages) || payload.messages.length > DRAWER_LIMIT) throw new Error('Invalid history response');
-      const snapshot = payload.messages.map(parseItem).filter(Boolean);
-      const messages = [...snapshot, ...Array.from(historyRows.values(), entry => entry.item)];
-      messages.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
-      historyRows.clear();
-      historyList.replaceChildren();
-      for (const item of messages) appendDrawerMessage(item);
-      historyStatus.textContent = historyRows.size ? '' : '还没有历史弹幕。';
+      if (controller.signal.aborted || !Array.isArray(payload?.messages) || payload.messages.length > limit ||
+          (payload.partial !== undefined && typeof payload.partial !== 'boolean')) return { retryable: true };
+      const items = payload.messages.map(parseItem).filter(item => item && Number.isFinite(Date.parse(item.createdAt)));
+      // New servers can mark a complete snapshot explicitly. Keep legacy responses compatible.
+      const partial = payload.partial === true || items.length !== payload.messages.length;
+      return { items, partial, explicitlyComplete: payload.partial === false && !partial, retryable: true };
     } catch {
-      if (historyRequest === controller) historyStatus.textContent = '暂时无法读取历史弹幕，重新打开可重试。';
+      return { retryable: true };
     } finally {
       clearTimeout(timeout);
-      if (historyRequest === controller) historyRequest = undefined;
+      signal.removeEventListener('abort', abort);
     }
+  }
+
+  async function loadRecentForDrawer(load) {
+    const result = await readPublicHistory('/api/danmaku/recent', MAX_HISTORY_QUEUE, load.controller.signal, DRAWER_RECENT_TIMEOUT);
+    if (historyLoad !== load || !result.items) return;
+    const now = Date.now();
+    mergeDrawerMessages(result.items.filter(item => {
+      const time = Date.parse(item.createdAt);
+      // Replay carries live moderation text. Only the archive supplies public moderation records.
+      return !item.moderation && time >= now - HISTORY_WINDOW_MS && time <= now + 30_000;
+    }));
+    return result;
+  }
+
+  function canConfirmLegacyEmptyHistory() {
+    return !historyStreamInterrupted && (!stream || stream.readyState === EventSource.OPEN) &&
+      (!isMirror || (nextAvailability === true && !mirrorPrimaryUnavailable));
+  }
+
+  async function requestDrawerHistory(load) {
+    if (historyLoad !== load) return;
+    load.refreshAfter = false;
+    const revision = historyRevision;
+    const result = await readPublicHistory('/api/danmaku/history', DRAWER_LIMIT, load.controller.signal);
+    if (historyLoad !== load) return;
+
+    const items = result.items?.filter(item => !withdrawnIds.has(item.id));
+    const legacyMirrorOutage = isMirror && mirrorPrimaryUnavailable && !result.explicitlyComplete;
+    const complete = !result.partial && !legacyMirrorOutage && nextAvailability !== false;
+    if (items?.length) {
+      // Keep messages delivered by live events or recent fallback during this request.
+      mergeDrawerMessages(items, complete ? revision : -1);
+      if (complete && !load.refreshAfter) {
+        cancelDrawerHistory();
+        paintHistoryStatus('ready');
+        return;
+      }
+    }
+
+    // Older servers also return unmarked empty arrays as placeholders during outages.
+    const empty = complete && result.items?.length === 0;
+    if (empty && result.explicitlyComplete && !load.refreshAfter) {
+      mergeDrawerMessages([], revision);
+      cancelDrawerHistory();
+      paintHistoryStatus('ready');
+      return;
+    }
+    const legacyEmpty = empty && canConfirmLegacyEmptyHistory() && !historyRows.size;
+    if (legacyEmpty && load.sawEmpty) {
+      const recent = await load.recent;
+      if (historyLoad !== load) return;
+      if (!historyRows.size && !load.refreshAfter && canConfirmLegacyEmptyHistory() && (!isMirror || recent?.explicitlyComplete)) {
+        cancelDrawerHistory();
+        paintHistoryStatus('ready');
+        return;
+      }
+    }
+    load.sawEmpty = legacyEmpty;
+    const delays = isMirror ? MIRROR_DRAWER_RETRY_DELAYS : DRAWER_RETRY_DELAYS;
+    const delay = delays[load.attempt++];
+    if (!result.retryable || delay === undefined) {
+      await load.recent;
+      if (historyLoad !== load) return;
+      cancelDrawerHistory();
+      paintHistoryStatus('unavailable');
+      return;
+    }
+    paintHistoryStatus('retrying');
+    if (!load.recent && !historyRows.size) load.recent = loadRecentForDrawer(load);
+    load.timer = setTimeout(() => void requestDrawerHistory(load), delay);
   }
 
   function openHistoryDrawer() {
@@ -1469,7 +1617,7 @@
     historyDrawer.dataset.open = 'true';
     historyButton.setAttribute('aria-expanded', 'true');
     historyClose.focus({ preventScroll: true });
-    void loadDrawerHistory();
+    loadDrawerHistory();
   }
 
   function closeHistoryDrawer(restoreFocus = true) {
@@ -1478,8 +1626,7 @@
     historyDrawer.inert = true;
     historyDrawer.dataset.open = 'false';
     historyButton.setAttribute('aria-expanded', 'false');
-    historyRequest?.abort();
-    historyRequest = undefined;
+    cancelDrawerHistory();
     clearTimeout(historyCloseTimer);
     historyCloseTimer = setTimeout(() => { historyDrawer.hidden = true; }, reducedMotion.matches ? 0 : 220);
   }
@@ -1713,6 +1860,7 @@
   }
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
+      cancelDrawerHistory();
       cancelModerationHold();
       closeModeration(false);
       replayAllowed = false;
@@ -1723,17 +1871,28 @@
       void refreshAdmin(true);
     }
     connectStream();
+    if (!document.hidden) loadDrawerHistory();
   });
-  window.addEventListener('online', connectStream);
-  window.addEventListener('offline', connectStream);
+  window.addEventListener('online', () => {
+    connectStream();
+    loadDrawerHistory();
+  });
+  window.addEventListener('offline', () => {
+    connectStream();
+    restartDrawerHistory();
+  });
   window.addEventListener('pagehide', () => {
+    cancelDrawerHistory();
     replayAllowed = false;
     replayAttempted = true;
     cancelHistoricalReplay(true);
     closeStream();
     clearChips();
   });
-  window.addEventListener('pageshow', connectStream);
+  window.addEventListener('pageshow', event => {
+    connectStream();
+    if (event.persisted) loadDrawerHistory();
+  });
   window.addEventListener('focus', () => {
     updateSend();
     void refreshAdmin(true);
@@ -1753,6 +1912,11 @@
     connectStream();
   });
   reducedMotion.addEventListener?.('change', event => {
+    if (event.matches && historyNotice) {
+      historyNotice.cancel();
+      historyNotice = undefined;
+      historyStatus.textContent = historyStatusMessage;
+    }
     layer.dataset.reducedMotion = String(event.matches);
     clearChips();
   });
@@ -2229,37 +2393,29 @@
 
   function forgetRemoved(ids) {
     if (!Array.isArray(ids)) return;
+    const hadRows = historyRows.size > 0;
     for (const id of ids) {
       if (typeof id !== 'string') continue;
+      withdrawnIds.add(id);
+      if (withdrawnIds.size > MAX_HISTORY_QUEUE) withdrawnIds.delete(withdrawnIds.keys().next().value);
+      historyRows.get(id)?.row.remove();
+      historyRows.delete(id);
       const communityPass = communityVotes.get(id)?.status === 'passed';
       const flight = visibleChips.get(id);
       if (communityPass && flight) {
         closeActionMenu(false);
-        historyRows.get(id)?.row.remove();
-        historyRows.delete(id);
         freezeCommunityFlight(flight);
         clearTimeout(communityVoteNoticeTimers.get(id));
         communityVoteNoticeTimers.set(id, setTimeout(() => {
-          withdrawnIds.add(id);
           removeVisibleChip(id);
-          historyQueue = historyQueue.filter(item => item.id !== id);
-          for (let index = pendingChips.length - 1; index >= 0; index--) {
-            if (pendingChips[index].item.id === id) pendingChips.splice(index, 1);
-          }
           communityVoteNoticeTimers.delete(id);
           requestMotion();
         }, COMMUNITY_SUCCESS_VISIBLE_MS));
         continue;
       }
-      withdrawnIds.add(id);
-      if (withdrawnIds.size > MAX_HISTORY_QUEUE) withdrawnIds.delete(withdrawnIds.keys().next().value);
       removeVisibleChip(id);
-      historyRows.get(id)?.row.remove();
-      historyRows.delete(id);
     }
-    if (historyIsOpen() && !historyRequest && !historyRows.size && !historyStatus.textContent) {
-      historyStatus.textContent = '还没有历史弹幕。';
-    }
+    if (hadRows && !historyRows.size) loadDrawerHistory();
     if (historyQueue.length) historyQueue = historyQueue.filter(item => !withdrawnIds.has(item.id));
     for (let index = pendingChips.length - 1; index >= 0; index--) {
       if (withdrawnIds.has(pendingChips[index].item.id)) pendingChips.splice(index, 1);
@@ -2654,9 +2810,11 @@
   });
 
   window.addEventListener('mirror-primary-availability', event => {
-    const unavailable = event.detail?.available === false;
+    if (typeof event.detail?.available !== 'boolean') return;
+    const unavailable = !event.detail.available;
     if (mirrorPrimaryUnavailable === unavailable) return;
     mirrorPrimaryUnavailable = unavailable;
+    restartDrawerHistory();
     if (unavailable) setPostingIdentity(null, false, false);
     else void refreshAdmin(true);
     renderAccountOptions();

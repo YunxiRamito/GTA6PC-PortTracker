@@ -257,7 +257,7 @@
 .danmaku-history-head { display: flex; min-inline-size: 0; align-items: center; justify-content: space-between; gap: .65rem; }
 .danmaku-history-head h2 { min-inline-size: 0; margin: 0; color: var(--paper, #fff1e3); font-size: .96rem; line-height: 1.25; }
 .danmaku-history .danmaku-history-close { inline-size: 34px; block-size: 34px; border-radius: 50%; }
-.danmaku-history-status { min-block-size: 1.35em; color: var(--muted, #cfc3e9); font-size: .76rem; line-height: 1.35; overflow-wrap: anywhere; }
+.danmaku-history-status { margin: 0; min-block-size: 1.35em; color: var(--muted, #cfc3e9); font-size: .76rem; line-height: 1.35; overflow-wrap: anywhere; }
 .danmaku-history-list {
   display: flex;
   min-block-size: 0;
@@ -315,7 +315,7 @@
   -webkit-touch-callout: none;
   user-select: none;
 }
-.danmaku-history-likes[hidden], .danmaku-history-status:empty { display: none; }
+.danmaku-history-likes[hidden], .danmaku-history-list[hidden], .danmaku-history-status:empty { display: none; }
 .danmaku-history-likes .ui-icon { inline-size: .85rem; block-size: .85rem; }
 .danmaku-history-text { min-inline-size: 0; margin: 0; color: var(--paper, #fff1e3); font-size: .84rem; line-height: 1.5; white-space: normal; overflow-wrap: anywhere; }
 @starting-style { .danmaku-history[data-open="true"]:not([inert]) { opacity: 0; transform: translateY(7px) scale(.99); } }
