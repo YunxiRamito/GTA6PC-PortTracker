@@ -572,7 +572,7 @@
     var stars = gh.stars != null ? formatNum(gh.stars) : '—';
     var forks = gh.forks != null ? formatNum(gh.forks) : '—';
     var issues = gh.openIssues != null ? gh.openIssues : '—';
-    var pushed = gh.pushedAt ? relativeTime(gh.pushedAt) : (p.daysSincePush != null ? p.daysSincePush + '天前' : '—');
+    var pushed = lastPushTime(gh.pushedAt);
     var fallbackIcon = '<svg class="ui-icon card-logo card-logo-fallback" viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
       '<use href="/assets/ui/fluent.svg#document"></use></svg>';
     var anchorId = projectAnchorId(p.repo);
@@ -598,7 +598,7 @@
           '<span class="stat star">' + statLabel('star-16', '星标') + '<b>' + escapeHtml(stars) + '</b></span>' +
           '<span class="stat">' + statLabel('repo-forked-16', '复刻') + '<b>' + escapeHtml(forks) + '</b></span>' +
           '<span class="stat">' + statLabel('issue-opened-16', '未关闭议题') + '<b>' + escapeHtml(issues) + '</b></span>' +
-          '<span class="stat">' + statLabel('clock-16', '最近推送') + '<b>' + escapeHtml(pushed) + '</b></span>' +
+          '<span class="stat">' + statLabel('clock-16', '最近推送') + '<b>' + pushed + '</b></span>' +
         '</div>' +
         '<span class="card-type">' + escapeHtml(type) + '</span>' +
         (url ? '<a class="card-link" href="' + url + '" target="_blank" rel="noopener">' + octicon('eye-16') + '查看仓库</a>' : '') +
@@ -860,14 +860,31 @@
     followNewsHash();
   }
 
-  function relativeTime(iso) {
-    var diff = Date.now() - new Date(iso).getTime();
-    var d = Math.floor(diff / 86400000);
-    if (d <= 0) return '今天';
-    if (d === 1) return '昨天';
-    if (d < 30) return d + '天前';
-    if (d < 365) return Math.floor(d / 30) + '月前';
-    return Math.floor(d / 365) + '年前';
+  var pushWeekdayFormatter = new Intl.DateTimeFormat('zh-CN', { weekday: 'short' });
+  var pushTimestampFormatter = new Intl.DateTimeFormat('zh-CN', {
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZoneName: 'short',
+  });
+
+  function localDayNumber(date) {
+    return Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86400000;
+  }
+
+  function lastPushLabel(pushedAt, now) {
+    var time = String(pushedAt.getHours()).padStart(2, '0') + ':' + String(pushedAt.getMinutes()).padStart(2, '0');
+    var days = localDayNumber(now) - localDayNumber(pushedAt);
+    if (days === 0) return time;
+    if (days === 1) return '昨日' + ' ' + time;
+    if (days > 1 && days < 7) return pushWeekdayFormatter.format(pushedAt) + ' ' + time;
+    if (days >= 365) return '很久以前';
+    return (pushedAt.getMonth() + 1) + '.' + pushedAt.getDate() + ' ' + time;
+  }
+
+  function lastPushTime(iso) {
+    var pushedAt = typeof iso === 'string' ? new Date(iso) : null;
+    if (!pushedAt || !Number.isFinite(pushedAt.getTime())) return '—';
+    var title = pushTimestampFormatter.format(pushedAt);
+    var label = lastPushLabel(pushedAt, new Date());
+    return '<time datetime="' + escapeAttr(pushedAt.toISOString()) + '" title="' + escapeAttr(title) + '">' + escapeHtml(label) + '</time>';
   }
 
   /* ---------------- states ---------------- */

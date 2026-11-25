@@ -16,7 +16,7 @@ const { createDemoServer } = require('../preview');
 const workspace = path.resolve(__dirname, '..');
 const loopback = '127.0.0.1';
 
-async function listener(t, server) {
+async function listener(t, server, afterClose) {
   server.listen(0, loopback);
   await once(server, 'listening');
   t.after(async () => {
@@ -25,6 +25,7 @@ async function listener(t, server) {
       server.close(resolve);
       server.closeAllConnections?.();
     });
+    await afterClose?.();
   });
   return `http://${loopback}:${server.address().port}`;
 }
@@ -188,6 +189,76 @@ test('screenshot preview responds from fixtures and rejects writes', async t => 
   checkDemoPrivateRepositories(await json(await send(origin, '/api/dashboard'), 200));
   assert.equal((await send(origin, '/api/feedback', { method: 'POST', data: { text: 'sample' } })).status, 405);
   assert.equal((await send(origin, '/about/')).status, 200);
+});
+
+test('dashboard and RSS reads stay passive while the scheduler starts on listening', async t => {
+  const { directory, cleanup } = await runtime();
+  let starts = 0;
+  let reads = 0;
+  const dashboard = {
+    start(readProjects) {
+      starts++;
+      assert.equal(typeof readProjects, 'function');
+      assert.equal(readProjects().length, createFixtures(Date.now()).content.projects.length);
+    },
+    stop() {},
+    get(content) {
+      reads++;
+      assert.equal(arguments.length, 1, 'routes must not pass a force option');
+      assert.ok(content.projects.length);
+      return { timeline: [] };
+    },
+  };
+  const server = createSiteServer({ runtimeDir: directory, dashboard, traffic: {
+    readSnapshot: async () => null,
+    subscribe: () => () => {},
+  } });
+  assert.equal(starts, 0, 'the scheduler must wait until the server listens');
+  const origin = await listener(t, server, cleanup);
+
+  assert.equal(starts, 1);
+  assert.equal((await send(origin, '/api/dashboard?force=1')).status, 200);
+  assert.equal((await send(origin, '/rss.xml')).status, 200);
+  assert.equal(reads, 2);
+});
+
+test('dashboard reads and legacy force options do not fetch before the background schedule', async () => {
+  const now = () => Date.UTC(2026, 0, 15);
+  const { content, metadata } = createFixtures(now());
+  const dashboardContent = { ...content, projects: [{ ...content.projects[0], repo: 'fixture/background-runner' }] };
+  let requests = 0;
+  let markRequested;
+  const requested = new Promise(resolve => { markRequested = resolve; });
+  const dashboard = createDashboard({
+    now,
+    initial: metadata,
+    liveGitHub: true,
+    fetchGitHub: async () => {
+      requests++;
+      markRequested();
+      return new Response(JSON.stringify({
+        stargazers_count: 4, forks_count: 1, open_issues_count: 0, pushed_at: '2026-01-14T12:00:00Z',
+      }), { headers: { 'content-type': 'application/json' } });
+    },
+  });
+
+  try {
+    dashboard.get(dashboardContent);
+    dashboard.get(dashboardContent, { force: true });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(requests, 0);
+
+    dashboard.start(() => dashboardContent.projects);
+    await requested;
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(requests, 1, 'listening starts a single immediate refresh pass');
+
+    dashboard.get(dashboardContent, { force: true });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(requests, 1, 'dashboard reads cannot bypass the scheduler cadence');
+  } finally {
+    dashboard.stop();
+  }
 });
 
 test('private repository validation accepts legacy roadmaps and enforces the record contract', () => {

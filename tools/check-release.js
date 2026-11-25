@@ -20,7 +20,7 @@ const allowlist = [
   'api/_danmaku-community-mutes.js', 'api/_danmaku-filter.js', 'api/_danmaku-history.js',
   'api/_danmaku-mutes.js', 'api/_danmaku-nonces.js', 'api/_danmaku-rank-grants.js', 'api/_danmaku-scheduled.js',
   'api/_danmaku-settings.js', 'api/_danmaku-words.js', 'api/_danmaku.js', 'api/_feedback.js',
-  'api/_progress-history.js', 'api/_rss.js', 'api/_sponsors.js', 'api/_traffic-events.js',
+  'api/_github-stats.js', 'api/_progress-history.js', 'api/_rss.js', 'api/_sponsors.js', 'api/_traffic-events.js',
   'api/_traffic-history.js', 'api/dashboard.js', 'api/preview-dashboard.js', 'api/traffic.js',
   'assets/danmaku-mount.js', 'assets/danmaku.css', 'assets/danmaku.js', 'assets/feedback.css', 'assets/feedback.js',
   'assets/about.css', 'assets/chapters.css', 'assets/dashboard.css', 'assets/demo.css', 'assets/demo.js',
@@ -32,7 +32,7 @@ const allowlist = [
   'assets/ui/barlow-condensed-700-latin.woff2', 'assets/ui/barlow-condensed-900-latin.woff2',
   'assets/ui/fluent.svg', 'assets/ui/octicons.svg', 'assets/vendor/Lenis-LICENSE.txt', 'assets/vendor/lenis.min.js',
   'docs/demo-screenshot.png', 'docs/provenance.md', 'fixtures/demo.js',
-  'scripts/bootstrap-account-owner.js', 'test/port-score.test.js', 'test/server.test.js', 'tools/check-release.js', 'tools/sync-core.cjs', 'tools/sync-from-site.cjs',
+  'scripts/bootstrap-account-owner.js', 'test/github-push-time.test.js', 'test/github-stats.test.js', 'test/port-score.test.js', 'test/server.test.js', 'tools/check-release.js', 'tools/sync-core.cjs', 'tools/sync-from-site.cjs',
 ].sort();
 const permitted = new Set([...allowlist, manifest]);
 const directories = new Set();
@@ -62,7 +62,7 @@ function permittedHost(file, host) {
   if (namespaceHosts.has(host)) return true;
   if (file === 'README.md' || file === 'docs/provenance.md') return markdownHosts.has(host);
   if (/^assets\/ui\/OFL-.*\.txt$/.test(file)) return licenseHosts.has(host);
-  if (file === 'api/dashboard.js') return host === 'api.github.com' || host === 'github.com';
+  if (file === 'api/dashboard.js' || file === 'api/_github-stats.js') return host === 'api.github.com' || host === 'github.com';
   if (file === 'assets/navigation.js') return host === 'github.com' || loopbackHosts.has(host);
   if (file === 'assets/navigation.js') return host === 'github.com' || loopbackHosts.has(host);
   if (file.startsWith('tools/sync-')) return ['api.github.com', 'github.com', '127.0.0.1'].includes(host);
@@ -72,7 +72,10 @@ function permittedHost(file, host) {
 function list(relative = '') {
   const found = [];
   for (const entry of fs.readdirSync(path.resolve(root, relative), { withFileTypes: true })) {
-    if (!relative && entry.name === '.git' && entry.isDirectory() && !entry.isSymbolicLink()) continue;
+    if (!relative && entry.name === '.git') {
+      assert(!entry.isSymbolicLink() && (entry.isDirectory() || entry.isFile()), 'Unexpected Git metadata entry');
+      continue;
+    }
     const file = relative ? `${relative}/${entry.name}` : entry.name;
     assert(!entry.isSymbolicLink(), `Unexpected link: ${file}`);
     if (entry.isDirectory() && directories.has(file)) found.push(...list(file));
@@ -125,18 +128,21 @@ function scan(file) {
 
 function main() {
   const seal = process.argv[2] === '--seal';
-  if (process.argv.length > 2 && !seal) throw new Error('Use node tools/check-release.js [--seal]');
+  const auditOnly = process.argv[2] === '--audit';
+  if (process.argv.length > 2 && !seal && !auditOnly) throw new Error('Use node tools/check-release.js [--audit | --seal]');
   const actual = new Set(list());
   for (const file of allowlist) assert(actual.has(file), `Missing release file: ${file}`);
   const files = Object.fromEntries(allowlist.map(file => [file, createHash('sha256').update(scan(file)).digest('hex')]));
   if (seal) fs.writeFileSync(path.join(root, manifest), JSON.stringify({ algorithm: 'sha256', files }, null, 2) + '\n');
-  else {
+  else if (!auditOnly) {
     const saved = JSON.parse(fs.readFileSync(path.join(root, manifest), 'utf8'));
     assert.equal(saved.algorithm, 'sha256');
     assert.deepEqual(Object.keys(saved.files), allowlist, 'Manifest does not match file allowlist');
     for (const file of allowlist) assert(saved.files[file] === files[file], `Changed since sealed: ${file}`);
   }
-  console.log(`${allowlist.length} release files passed path, endpoint, sensitive-content, and integrity checks.`);
+  console.log(auditOnly
+    ? `${allowlist.length} release files passed path, endpoint, and sensitive-content audits; manifest integrity was not checked.`
+    : `${allowlist.length} release files passed path, endpoint, sensitive-content, and integrity checks.`);
 }
 
 try { main(); } catch (error) { console.error(error.message); process.exitCode = 1; }

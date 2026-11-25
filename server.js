@@ -306,7 +306,7 @@ function createSiteServer({
   githubToken = process.env.GTAVI_GITHUB_TOKEN || '',
   store = createContentStore({ filePath: path.join(runtimeDir, 'content.json'), now }),
   dashboard = createDashboard({ now, initial: createFixtures(now()).metadata, liveGitHub, token: githubToken,
-    progressHistoryPath: path.join(runtimeDir, 'progress-history.json') }),
+    progressHistoryPath: path.join(runtimeDir, 'progress-history.json'), cachePath: path.join(runtimeDir, 'github-stats.json') }),
   traffic = createTrafficHandler({ filePath: path.join(runtimeDir, 'traffic.json') }),
 } = {}) {
   const auth = createAdminAuth({
@@ -847,9 +847,11 @@ function createSiteServer({
       const { content, updatedAt, etag } = store.read();
       return { content: projectPublicContent(content), updatedAt, revision: etag };
     },
-    getDashboard(force) {
-      return dashboard.get(store.read().content, { force });
+    getDashboard() {
+      return dashboard.get(store.read().content);
     },
+    startDashboard: () => dashboard.start?.(() => store.read().content.projects),
+    stopDashboard: () => dashboard.stop?.(),
     traffic,
     trafficHistoryPath: path.join(runtimeDir, 'traffic-history.json'),
     danmaku,
@@ -859,7 +861,7 @@ function createSiteServer({
   });
 }
 
-function createPublicServer({ getContent, getSponsors, getSponsorAvatar, getDashboard, traffic, trafficHistoryPath, danmaku, feedback, handleAdmin, now }) {
+function createPublicServer({ getContent, getSponsors, getSponsorAvatar, getDashboard, startDashboard, stopDashboard, traffic, trafficHistoryPath, danmaku, feedback, handleAdmin, now }) {
   const history = createTrafficHistory({ filePath: trafficHistoryPath, getSnapshot: traffic.readSnapshot, now });
   const getTrafficHistory = history.read;
   const events = createTrafficEvents({ traffic });
@@ -929,7 +931,7 @@ function createPublicServer({ getContent, getSponsors, getSponsorAvatar, getDash
     if (pathname === RSS_PATH) {
       if (req.method !== 'GET' && req.method !== 'HEAD') return sendJson(res, 405, { error: '只支持 GET 或 HEAD' }, { Allow: 'GET, HEAD', Connection: 'close' });
       try {
-        const { timeline } = getDashboard(false);
+        const { timeline } = getDashboard();
         return serveNewsFeed(req, res, timeline, publicOrigin);
       } catch (err) {
         console.error('RSS request failed:', err.code || err.name);
@@ -951,7 +953,7 @@ function createPublicServer({ getContent, getSponsors, getSponsorAvatar, getDash
     if (pathname === '/api/dashboard') {
       if (req.method !== 'GET') return sendJson(res, 405, { error: '只支持 GET' }, { Allow: 'GET', Connection: 'close' });
       try {
-        const payload = getDashboard(url.searchParams.get('force') === '1');
+        const payload = getDashboard();
         if (!payload) return sendJson(res, 503, { error: '工程档案正在同步' });
         return sendJson(res, 200, payload, { 'Cache-Control': 'no-cache' }, req);
       } catch (err) {
@@ -979,8 +981,8 @@ function createPublicServer({ getContent, getSponsors, getSponsorAvatar, getDash
       return sendJson(res, 503, { error: '暂时无法完成请求' }, { Connection: 'close' });
     });
   });
-  site.on('listening', () => { danmaku.start(); history.start(); });
-  site.on('close', () => { history.stop(); events.close(); void danmaku.close(); });
+  site.on('listening', () => { startDashboard?.(); danmaku.start(); history.start(); });
+  site.on('close', () => { stopDashboard?.(); history.stop(); events.close(); void danmaku.close(); });
   site.closeDanmaku = () => danmaku.close();
   return site;
 }

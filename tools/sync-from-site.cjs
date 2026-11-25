@@ -8,7 +8,7 @@ const path = require('node:path');
 const { createHash } = require('node:crypto');
 
 const workspace = path.resolve(__dirname, '../..');
-const source = path.join(workspace, 'gta6-pc-port-dashboard');
+const source = path.resolve(process.env.GTAVI_SITE_SOURCE_DIR || process.env.GTAVI_SITE_SOURCE || path.join(workspace, 'gta6-pc-port-dashboard'));
 const published = path.resolve(__dirname, '..');
 const review = path.resolve(process.env.GTAVI_EXPORT_REVIEW_DIR || path.join(workspace, '.preview/public-source-review'));
 const canonicalText = value => value.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n');
@@ -278,7 +278,7 @@ function consoleRouter(text) {
 function server(text) {
   let js = backend.server(text);
   js = replace(js, /^const .*require\('\.\/api\/_(?:repository-images|qq-group-counts|obs)'\);\n/gm, '');
-  js = cut(js, '    getContent() {', '    getDashboard(force)', `    getContent() {
+  js = cut(js, '    getContent() {', '    getDashboard()', `    getContent() {
       const { content, updatedAt, etag } = store.read();
       return { content: projectPublicContent(content), updatedAt, revision: etag };
     },
@@ -358,6 +358,7 @@ const inputs = {
   'api/_feedback.js': backend.feedback,
   'api/_danmaku.js': backend.danmaku,
   'api/_danmaku-filter.js': backend.filter,
+  'api/_github-stats.js': backend.githubStats,
   // The dashboard projections, scoring model, and score tests are demo-owned.
   'server.js': server,
   'scripts/bootstrap-account-owner.js': backend.bootstrap,

@@ -3,133 +3,43 @@
 const { TYPES, STATUSES, projectPrivateRepositories } = require('./_content');
 const { overall: portOverall } = require('../assets/port-score');
 const { createProgressHistory } = require('./_progress-history');
+const { createGitHubStats } = require('./_github-stats');
 
 const repoKey = repo => repo.toLowerCase();
 const DAY = 24 * 60 * 60_000;
 const LIVE_TIMELINE_LIMIT = 100;
 const newestFirst = (a, b) => Date.parse(b.date) - Date.parse(a.date);
 
-function releaseTitle(tag) {
-  const version = tag.trim();
-  return '发布了新版本' + (version.length <= 30 && /^v?\d+(?:\.\d+){0,3}(?:[-+][\w.-]+)?$/i.test(version) ? ` · ${version}` : '');
-}
-
-function createDashboard({ fetchGitHub = fetch, now = Date.now, initial = new Map(), liveGitHub = false, token = '', progressHistoryPath = null } = {}) {
-  const QUIET_MS = token ? 5 * 60_000 : 65 * 60_000;
+function createDashboard({ fetchGitHub = fetch, now = Date.now, initial = new Map(), liveGitHub = false, token = '', progressHistoryPath = null, cachePath = null } = {}) {
+  const githubStats = createGitHubStats({ fetchGitHub, now, initial, liveGitHub, token, cachePath });
   const progressHistory = progressHistoryPath ? createProgressHistory({ filePath: progressHistoryPath, now }) : null;
   let lastHistoryKey = '';
-  let metadata = new Map(initial);
-  let live = [];
-  let generatedAt = new Date(now()).toISOString();
-  let stale = liveGitHub;
-  let rate = { limit: 0, remaining: 0, reset: 0, authenticated: Boolean(token) };
-  let nextRefresh = 0;
-  let lastAttempt = -Infinity;
-  let limitedUntil = 0;
-  let pending = null;
-  let warning = '';
+  let scheduler = null;
+  let readProjects = null;
 
-  async function request(apiPath) {
-    const headers = { 'User-Agent': 'gta6-pc-port-tracker', Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
-    if (token) headers.Authorization = `Bearer ${token}`;
-    const response = await fetchGitHub(`https://api.github.com${apiPath}`, { headers, signal: AbortSignal.timeout(7500) });
-    const limit = Number(response.headers.get('x-ratelimit-limit'));
-    const remaining = Number(response.headers.get('x-ratelimit-remaining'));
-    const reset = Number(response.headers.get('x-ratelimit-reset')) * 1000;
-    const retryHeader = response.headers.get('retry-after');
-    const retrySeconds = retryHeader !== null && /^\d+$/.test(retryHeader) ? Number(retryHeader) : 0;
-    if (limit > 0) {
-      // Parallel responses may arrive out of order; don't report the quota as restored.
-      if (rate.reset !== reset || rate.limit !== limit) rate = { limit, remaining, reset, authenticated: Boolean(token) };
-      else rate.remaining = Math.min(rate.remaining, remaining);
-    }
-    if (response.status === 429 || (response.status === 403 && (remaining === 0 || retrySeconds))) {
-      limitedUntil = Math.max(reset || 0, now() + Math.max(120, retrySeconds) * 1000);
-    }
-    if (!response.ok) {
-      await response.body?.cancel().catch(() => {});
-      return null;
-    }
-    return response.json();
+  function start(projects) {
+    if (!liveGitHub || scheduler) return;
+    readProjects = typeof projects === 'function' ? projects : () => projects;
+    const schedule = () => {
+      try { Promise.resolve(githubStats.schedule(readProjects() || [])).catch(() => {}); } catch { /* Keep serving cached stats. */ }
+    };
+    schedule();
+    scheduler = setInterval(schedule, 60_000);
+    scheduler.unref?.();
   }
 
-  function repoPath(project) { return '/repos/' + project.repo.split('/').map(encodeURIComponent).join('/'); }
-  async function workers(items, task) {
-    let index = 0;
-    await Promise.all(Array.from({ length: Math.min(items.length, 5) }, async () => {
-      while (index < items.length && now() >= limitedUntil) {
-        const item = items[index++];
-        try { await task(item); } catch { /* Keep last known metadata for unavailable repos. */ }
-      }
-    }));
+  function stop() {
+    if (scheduler) clearInterval(scheduler);
+    scheduler = null;
+    readProjects = null;
   }
 
-  async function refresh(projects) {
-    const fresh = new Map();
-    const newLive = [];
-    try {
-      await workers(projects, async project => {
-        const gh = await request(repoPath(project));
-        if (!gh || typeof gh.stargazers_count !== 'number') return;
-        fresh.set(repoKey(project.repo), {
-          stars: gh.stargazers_count,
-          forks: Number.isInteger(gh.forks_count) ? gh.forks_count : null,
-          openIssues: Number.isInteger(gh.open_issues_count) ? gh.open_issues_count : null,
-          pushedAt: typeof gh.pushed_at === 'string' ? gh.pushed_at : null,
-        });
-      });
-      if (token) {
-        const eligible = projects.filter(p => fresh.has(repoKey(p.repo)) && (p.type === 'runner' || p.type === 'tool'));
-        await workers(eligible, async project => {
-          const root = repoPath(project);
-          const commits = await request(`${root}/commits?per_page=2`);
-          for (const item of Array.isArray(commits) ? commits : []) {
-            if (!item.commit?.author?.date) continue;
-            const url = /^[a-f0-9]{7,40}$/i.test(item.sha || '') ? `https://github.com/${project.repo}/commit/${item.sha}` : `https://github.com/${project.repo}`;
-            newLive.push({ repo: project.repo, date: item.commit.author.date, title: '项目更新了代码', kind: 'commit', url });
-          }
-          if (project.type === 'runner' && now() >= limitedUntil) {
-            const releases = await request(`${root}/releases?per_page=1`);
-            const item = Array.isArray(releases) ? releases[0] : null;
-            if (item?.published_at) {
-              const tag = typeof item.tag_name === 'string' ? item.tag_name.slice(0, 40) : '';
-              newLive.push({ repo: project.repo, date: item.published_at, title: releaseTitle(tag), tag, kind: 'release', url: tag ? `https://github.com/${project.repo}/releases/tag/${encodeURIComponent(tag)}` : `https://github.com/${project.repo}/releases` });
-            }
-          }
-        });
-      }
-      if (fresh.size) {
-        for (const [key, entry] of fresh) metadata.set(key, entry);
-        generatedAt = new Date(now()).toISOString();
-      }
-      if (newLive.length) live = newLive;
-      stale = fresh.size !== projects.length;
-      warning = limitedUntil > now() ? 'GitHub 请求已达到上限，部分数字使用上次保存的数据。'
-        : stale ? '部分 GitHub 数字暂未更新；新闻和项目简介仍是站内当前版本。' : '';
-    } finally {
-      nextRefresh = Math.max(limitedUntil, now() + (stale && token ? 60_000 : QUIET_MS));
-    }
-  }
-
-  function schedule(projects, force) {
-    const time = now();
-    if (!projects.length || pending || time < limitedUntil) return;
-    const canForce = force && token && time - lastAttempt >= 60_000;
-    if (!canForce && time < nextRefresh) return;
-    lastAttempt = time;
-    pending = refresh(projects).catch(() => {
-      stale = true;
-      warning = 'GitHub 数字暂未更新。';
-    }).finally(() => { pending = null; });
-  }
-
-  function get(content, { force = false } = {}) {
-    if (liveGitHub) schedule(content.projects, force);
+  function get(content) {
     const byType = {}, byStatus = {};
     let totalStars = 0, activeWeek = 0;
     const sevenDaysAgo = now() - 7 * DAY;
     const projects = content.projects.map(p => {
-      const gh = metadata.get(repoKey(p.repo));
+      const gh = githubStats.get(p.repo);
       const github = gh ? { stars: gh.stars, forks: gh.forks, openIssues: gh.openIssues, pushedAt: gh.pushedAt } : null;
       totalStars += github?.stars || 0;
       if (github?.pushedAt && Date.parse(github.pushedAt) >= sevenDaysAgo) activeWeek++;
@@ -146,7 +56,7 @@ function createDashboard({ fetchGitHub = fetch, now = Date.now, initial = new Ma
       id: n.id, correction: n.correction === true, repo: n.repo || '', date: n.date, title: n.title, kind: 'milestone',
       url: n.sourceUrl || (n.repo && !n.repo.startsWith('demo-workshop/') ? `https://github.com/${n.repo}` : ''),
     }));
-    const currentLive = live.filter(n => repos.has(repoKey(n.repo))).sort(newestFirst).slice(0, LIVE_TIMELINE_LIMIT);
+    const currentLive = githubStats.getTimeline().filter(n => repos.has(repoKey(n.repo))).sort(newestFirst).slice(0, LIVE_TIMELINE_LIMIT);
     const timeline = [...editorial, ...currentLive].sort(newestFirst);
 
     // Port progress overall score
@@ -188,9 +98,8 @@ function createDashboard({ fetchGitHub = fetch, now = Date.now, initial = new Ma
     }
 
     const result = {
-      generatedAt, stale: projects.length ? stale : false, rateLimited: limitedUntil > now(), rateLimit: rate,
-      warning: projects.length ? warning : '', refreshing: Boolean(pending),
-      config: { hasToken: liveGitHub && Boolean(token), cacheMinutes: QUIET_MS / 60_000, liveTimeline: liveGitHub && Boolean(token) },
+      ...githubStats.getStatus(content.projects),
+      config: { hasToken: liveGitHub && Boolean(token), cacheMinutes: githubStats.cacheMinutes, liveTimeline: liveGitHub && Boolean(token) },
       types: TYPES, statuses: STATUSES, stats: { total: projects.length, totalStars, activeWeek, byType, byStatus },
       projects, privateRepositories, timeline, progress: portProgress,
       ...(communityBuild ? { communityBuild } : {}),
@@ -207,7 +116,7 @@ function createDashboard({ fetchGitHub = fetch, now = Date.now, initial = new Ma
     }
     return result;
   }
-  return { get };
+  return { get, start, stop };
 }
 
 module.exports = { createDashboard };

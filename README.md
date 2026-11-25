@@ -70,7 +70,7 @@ node preview.js
 
 同步方法、源文件范围和审阅步骤见 [docs/sync.md](docs/sync.md)。候选先写入 `.preview/public-source-review/`，核对后才可按本轮摘要应用；不递归复制源站。
 
-默认使用本地 GitHub 指标样例。录入公开仓库后，可用 `GTAVI_GITHUB_REFRESH=1` 启用公开 GitHub API 指标刷新。`GTAVI_GITHUB_TOKEN` 用于需要认证的刷新请求。
+默认使用本地 GitHub 指标样例；演示仓库 `demo-workshop/*` 永不请求 GitHub。设置 `GTAVI_GITHUB_REFRESH=1` 可启用公开 GitHub API 指标刷新。服务器开始监听时立即启动单例后台刷新器，之后每 60 秒触发调度；统计库按认证状态、请求额度和限流结果控制实际刷新频率。Dashboard 与 RSS 请求（包括兼容的 `force=1` 参数）只读取当前统计，不会触发 GitHub 请求。成功取得的 live 指标与调度状态仅保存在运行目录的 `github-stats.json`，不会写入演示样例。`GTAVI_GITHUB_TOKEN` 可用于认证刷新。
 
 ```sh
 node --test

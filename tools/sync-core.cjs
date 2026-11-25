@@ -39,7 +39,8 @@ function server(original) {
   const sponsors = section(original, '    async getSponsors()', '    traffic,');
   const publicRouter = section(original, '    if (getSponsors && pathname ===', "    if (req.method === 'GET' || req.method === 'HEAD') {")
     .replace(/^.*if \(readMusicPlaylist && pathname === MUSIC_PATH\).*\n/m, '')
-    .replace('event-stream', 'event-stream');
+    .replace('getDashboard(false)', 'getDashboard()')
+    .replace("getDashboard(url.searchParams.get('force') === '1')", 'getDashboard()');
 
   return `// Loopback entry point for the public-source edition of the site.
 'use strict';
@@ -61,7 +62,7 @@ function createSiteServer({
   githubToken = process.env.GTAVI_GITHUB_TOKEN || '',
   store = createContentStore({ filePath: path.join(runtimeDir, 'content.json'), now }),
   dashboard = createDashboard({ now, initial: createFixtures(now()).metadata, liveGitHub, token: githubToken,
-    progressHistoryPath: path.join(runtimeDir, 'progress-history.json') }),
+    progressHistoryPath: path.join(runtimeDir, 'progress-history.json'), cachePath: path.join(runtimeDir, 'github-stats.json') }),
   traffic = createTrafficHandler({ filePath: path.join(runtimeDir, 'traffic.json') }),
 } = {}) {
   const auth = createAdminAuth({
@@ -149,7 +150,9 @@ ${permission}${controllers}
     return sendJson(res, 404, { error: '没有这个后台页面' }, headers);
   }
   return createPublicServer({
-${sponsors}    traffic,
+${sponsors}    startDashboard: () => dashboard.start?.(() => store.read().content.projects),
+    stopDashboard: () => dashboard.stop?.(),
+    traffic,
     trafficHistoryPath: path.join(runtimeDir, 'traffic-history.json'),
     danmaku,
     feedback: feedback.handlePublic,
@@ -158,7 +161,7 @@ ${sponsors}    traffic,
   });
 }
 
-function createPublicServer({ getContent, getSponsors, getSponsorAvatar, getDashboard, traffic, trafficHistoryPath, danmaku, feedback, handleAdmin, now }) {
+function createPublicServer({ getContent, getSponsors, getSponsorAvatar, getDashboard, startDashboard, stopDashboard, traffic, trafficHistoryPath, danmaku, feedback, handleAdmin, now }) {
   const history = createTrafficHistory({ filePath: trafficHistoryPath, getSnapshot: traffic.readSnapshot, now });
   const getTrafficHistory = history.read;
   const events = createTrafficEvents({ traffic });
@@ -202,8 +205,8 @@ ${publicRouter}    if (req.method === 'GET' || req.method === 'HEAD') {
       return sendJson(res, 503, { error: '暂时无法完成请求' }, { Connection: 'close' });
     });
   });
-  site.on('listening', () => { danmaku.start(); history.start(); });
-  site.on('close', () => { history.stop(); events.close(); void danmaku.close(); });
+  site.on('listening', () => { startDashboard?.(); danmaku.start(); history.start(); });
+  site.on('close', () => { stopDashboard?.(); history.stop(); events.close(); void danmaku.close(); });
   site.closeDanmaku = () => danmaku.close();
   return site;
 }
@@ -263,17 +266,44 @@ function content(text) {
 }
 
 function dashboard(text) {
-  let js = edit(text, "const fs = require('node:fs');\nconst path = require('node:path');\n", '');
-  js = cut(js, 'const stored = ', 'const DAY = ', 'const repoKey = repo => repo.toLowerCase();\n');
-  js = edit(js, 'initial = snapshotMeta, progressHistoryPath = null', "initial = new Map(), liveGitHub = false, token = '', progressHistoryPath = null");
-  js = edit(js, '  const progressHistory =', '  const QUIET_MS = token ? 5 * 60_000 : 65 * 60_000;\n  const progressHistory =');
-  js = edit(js, 'let generatedAt = stored.generatedAt;', 'let generatedAt = new Date(now()).toISOString();');
-  js = edit(js, 'let stale = true;', 'let stale = liveGitHub;');
-  js = edit(js, '    schedule(content.projects, force);', '    if (liveGitHub) schedule(content.projects, force);');
-  js = edit(js, 'liveTimeline: Boolean(token)', 'liveTimeline: liveGitHub && Boolean(token)');
-  js = edit(js, 'hasToken: Boolean(token)', 'hasToken: liveGitHub && Boolean(token)');
-  js = edit(js, "url: \`https://github.com/\${p.repo}\`", "url: p.repo.startsWith('demo-workshop/') ? '' : \`https://github.com/\${p.repo}\`");
-  js = edit(js, "(n.repo ? \`https://github.com/\${n.repo}\` : '')", "(n.repo && !n.repo.startsWith('demo-workshop/') ? \`https://github.com/\${n.repo}\` : '')");
+  // Demo score, fixtures and dashboard projection stay locally maintained.
+  return text;
+}
+
+function githubStats(text) {
+  let js = edit(text, 'const REPOSITORY = /^[\\w.-]+\\/[\\w.-]+$/;', `const REPOSITORY = /^[\\w.-]+\\/[\\w.-]+$/;
+const DEMO_REPOSITORY = /^demo-workshop\\//i;
+const isRefreshableRepository = repo => REPOSITORY.test(repo) && !DEMO_REPOSITORY.test(repo);`);
+  js = edit(js, '  const metadata = new Map(initial);', '  const metadata = new Map(initial);\n  const cachedMetadata = new Map();');
+  js = edit(js,
+    '            if (REPOSITORY.test(key) && value && (newer || !metadata.has(repoKey(key)))) metadata.set(repoKey(key), value);',
+    `            if (isRefreshableRepository(key) && value) {
+              const normalized = repoKey(key);
+              cachedMetadata.set(normalized, value);
+              if (newer || !metadata.has(normalized)) metadata.set(normalized, value);
+            }`);
+  js = edit(js, 'if (REPOSITORY.test(key) && validCount(entry?.at)', 'if (isRefreshableRepository(key) && validCount(entry?.at)');
+  js = edit(js, 'projects: select(metadata)', 'projects: select(cachedMetadata)');
+  js = edit(js,
+    '      metadata.set(key, value);\n      generatedAt = new Date(time).toISOString();',
+    '      metadata.set(key, value);\n      cachedMetadata.set(key, value);\n      generatedAt = new Date(time).toISOString();');
+  js = edit(js, 'projects.filter(p => REPOSITORY.test(p.repo))', 'projects.filter(p => isRefreshableRepository(p.repo))');
+  js = edit(js,
+    `    const maxAge = authenticated ? 2 * refreshInterval : (Math.ceil(projects.length / ANONYMOUS_BATCH) + 1) * refreshInterval;
+    const stale = liveGitHub && projects.some(p => {
+      const entry = attempts.get(repoKey(p.repo));
+      return !entry?.ok || time - entry.at > maxAge;
+    });
+    const warning = projects.length && rateLimited ? 'GitHub 请求已达到上限，部分数字使用上次保存的数据。'
+      : stale && !pending ? '部分 GitHub 数字暂未更新；新闻和项目简介仍是站内当前版本。' : '';`,
+    `    const refreshable = projects.filter(p => isRefreshableRepository(p.repo));
+    const maxAge = authenticated ? 2 * refreshInterval : (Math.ceil(refreshable.length / ANONYMOUS_BATCH) + 1) * refreshInterval;
+    const stale = liveGitHub && refreshable.some(p => {
+      const entry = attempts.get(repoKey(p.repo));
+      return !entry?.ok || time - entry.at > maxAge;
+    });
+    const warning = refreshable.length && rateLimited ? 'GitHub 请求已达到上限，部分数字使用上次保存的数据。'
+      : stale && !pending ? '部分 GitHub 数字暂未更新；新闻和项目简介仍是站内当前版本。' : '';`);
   return js;
 }
 
@@ -309,4 +339,4 @@ Reads the owner password from stdin without echo. Set GTAVI_RUNTIME_DIR to use a
   return edit(js, '      bootstrap: { username: args[0], password },', '      bootstrap: { username: args[0], password },\n      confirmedInitialOwner: args[0],');
 }
 
-module.exports = { server, content, dashboard, filter, danmaku, feedback, bootstrap };
+module.exports = { server, content, dashboard, githubStats, filter, danmaku, feedback, bootstrap };
