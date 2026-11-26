@@ -326,3 +326,15 @@ html.menu-open, html.menu-open body { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) {
   :is(.site-topbar, .chapter-menu) *, .site-nav::before { animation: none !important; transition: none !important; }
 }
+
+.site-topbar .site-github-link {
+  border-color: transparent;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.site-topbar .site-github-link:is(:hover, :focus-visible) {
+  border-color: transparent;
+  background: transparent;
+  color: var(--accent);
+}
