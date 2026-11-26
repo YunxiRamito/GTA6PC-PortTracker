@@ -1,6 +1,7 @@
 'use strict';
 
 const { TYPES, STATUSES, projectPrivateRepositories } = require('./_content');
+const { BUILD_TRANSLATION_FIELDS, NEWS_TRANSLATION_FIELDS, copyTranslations } = require('./_content-locale');
 const { overall: portOverall } = require('../assets/port-score');
 const DAY = 24 * 60 * 60 * 1000;
 const repoKey = repo => repo.toLowerCase();
@@ -25,7 +26,7 @@ function projectDashboard(content, { metadata, generatedAt, history }) {
   });
   const editorial = content.news.map(n => ({
     id: n.id, correction: n.correction === true, repo: n.repo || '', date: n.date, title: n.title, kind: 'milestone',
-    url: n.sourceUrl || '',
+    url: n.sourceUrl || '', ...copyTranslations(n, NEWS_TRANSLATION_FIELDS),
   }));
   const timeline = [...editorial].sort(newestFirst);
 
@@ -34,7 +35,7 @@ function projectDashboard(content, { metadata, generatedAt, history }) {
   const communityBuild = community && {
     id: 'community-build', title: community.title, summary: community.summary,
     sourceLabel: community.sourceLabel, sourceUrl: community.sourceUrl,
-    status: 'progress', portProgress: community.portProgress,
+    status: 'progress', portProgress: community.portProgress, ...copyTranslations(community, BUILD_TRANSLATION_FIELDS),
   };
   const privateRepositories = projectPrivateRepositories(content.roadmap);
   const portOv = portOverall([...projects, ...(communityBuild ? [communityBuild] : []), ...privateRepositories]);

@@ -3,14 +3,7 @@
 
   const t = (key, fallback, params) => window.SiteI18n?.t(key, fallback, params) ??
     (params ? fallback.replace(/\{(\w+)\}/g, (token, name) => params[name] ?? token) : fallback);
-  window.SiteI18n?.register?.({
-    'widgets.danmaku.roleOwner': ['Site owner', 'サイト管理者'],
-    'widgets.danmaku.roleAdmin': ['Admin', '管理'],
-    'widgets.danmaku.roleModerator': ['Moderator', 'モデレーター'],
-    'widgets.danmaku.roleContributor': ['Contributor', '共同制作者'],
-    'widgets.danmaku.rankReset': ['That badge is no longer available. Automatic is restored; send again or choose a badge in Settings.', 'そのバッジは使えなくなったため、自動に戻しました。再送信するか、設定でバッジを選んでください。'],
-    'widgets.danmaku.rankForbidden': ['That badge is no longer available. Check your selection in Settings, then send again.', 'そのバッジは使えなくなりました。設定で選択を確認してから再送信してください。'],
-  });
+  const locale = window.SiteI18n?.locale || 'zh-CN';
 
   const MAX_CODE_POINTS = 60;
   const MAX_SEEN_IDS = 500;
@@ -42,7 +35,7 @@
   const DRAWER_RETRY_DELAYS = [1200, 3000];
   // The mirror's live relay can be reconnecting even after the primary page is healthy.
   const MIRROR_DRAWER_RETRY_DELAYS = [...DRAWER_RETRY_DELAYS, 5500, 7500];
-  const DRAWER_DATE = new Intl.DateTimeFormat('zh-CN', {
+  const DRAWER_DATE = new Intl.DateTimeFormat(locale, {
     timeZone: 'Asia/Shanghai', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
   });
   const HISTORY_PACE_MS = 450;
@@ -62,8 +55,8 @@
     ['sponsor', t('widgets.danmaku.roleContributor', '共创')],
   ]);
   const NICKNAME_LIMIT = 12;
-  const NICKNAME_LENGTH_MESSAGE = '最多 6 个汉字或 12 个英文字母。';
-  const CLOSED_NOTICE = '管理员暂时关闭了实时弹幕';
+  const NICKNAME_LENGTH_MESSAGE = t('widgets.danmaku.nicknameLength', '最多 6 个汉字或 12 个英文字母。');
+  const CLOSED_NOTICE = t('widgets.danmaku.closedNotice', '管理员暂时关闭了实时弹幕');
   const LIKES_KEY = 'port-tracker-danmaku-likes-client';
   const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -139,16 +132,16 @@
     const menu = document.createElement('div');
     menu.className = 'danmaku-message-actions';
     menu.setAttribute('role', 'menu');
-    menu.setAttribute('aria-label', '弹幕操作');
+    menu.setAttribute('aria-label', t('widgets.danmaku.actions', '弹幕操作'));
     menu.hidden = true;
     menu.inert = true;
     const actions = document.createElement('div');
     actions.className = 'danmaku-message-actions-list';
     for (const [name, text, iconName] of [
-      ['select', '选择', 'document'],
-      ['copy', '复制', 'copy'],
-      ['community-vote', '发起禁言投票', 'pause'],
-      ['management-ban', '管理封禁', 'dismiss'],
+      ['select', t('widgets.danmaku.select', '选择'), 'document'],
+      ['copy', t('widgets.danmaku.copy', '复制'), 'copy'],
+      ['community-vote', t('widgets.danmaku.startVote', '发起禁言投票'), 'pause'],
+      ['management-ban', t('widgets.danmaku.managementBan', '管理封禁'), 'dismiss'],
     ]) {
       const button = document.createElement('button');
       button.type = 'button';
@@ -327,7 +320,7 @@
   }
 
   function setFeedState(message) {
-    feedState.textContent = nextAvailability === false ? '实时弹幕已关闭' : message;
+    feedState.textContent = nextAvailability === false ? t('widgets.danmaku.closed', '实时弹幕已关闭') : message;
   }
 
   function setAvailability(active) {
@@ -335,7 +328,6 @@
     const wasClosed = nextAvailability === false;
     nextAvailability = active;
     if (!active || wasClosed) restartDrawerHistory();
-    input.placeholder = active ? '\u8BF4\u70B9\u4EC0\u4E48\u2026' : '\u5B9E\u65F6\u5F39\u5E55\u5DF2\u6682\u505C';
     input.readOnly = !active;
     updateInputGate();
     if (active) {
@@ -343,7 +335,7 @@
       closureChip?.remove();
       closureChip = undefined;
       availabilityNotice.textContent = '';
-      setFeedState(display.checked ? '弹幕已连接' : '已关闭显示');
+      setFeedState(display.checked ? t('widgets.danmaku.connected', '弹幕已连接') : t('widgets.danmaku.displayDisabled', '已关闭显示'));
     } else {
       cancelHistoricalReplay(true);
       clearChips();
@@ -406,7 +398,7 @@
     inputLogin.hidden = mirrorPrimaryUnavailable || !promptVisible || !accountOrigin;
     inputLoginFallback.hidden = mirrorPrimaryUnavailable || !promptVisible || Boolean(accountOrigin);
     if (accountOrigin) inputLogin.href = accountOrigin + '/';
-    input.placeholder = guestMuted ? '' : nextAvailability === false ? '实时弹幕已暂停' : '说点什么…';
+    input.placeholder = guestMuted ? '' : nextAvailability === false ? t('widgets.danmaku.pausedPlaceholder', '实时弹幕已暂停') : t('widgets.danmaku.placeholder', '说点什么…');
   }
 
   function stopMotion() {
@@ -589,20 +581,20 @@
     showClosureNotice();
     if (!canConnect()) {
       closeStream();
-      if (!display.checked) setFeedState('已关闭显示');
-      else if (document.hidden) setFeedState('切回页面后继续');
-      else if (navigator.onLine === false) setFeedState('网络已断开');
-      else setFeedState('暂时暂停');
+      if (!display.checked) setFeedState(t('widgets.danmaku.displayDisabled', '已关闭显示'));
+      else if (document.hidden) setFeedState(t('widgets.danmaku.backgroundTab', '切回页面后继续'));
+      else if (navigator.onLine === false) setFeedState(t('widgets.danmaku.offline', '网络已断开'));
+      else setFeedState(t('widgets.danmaku.paused', '暂时暂停'));
       return;
     }
     if (typeof EventSource !== 'function' || stream || retryTimer) return;
 
-    setFeedState('正在连接…');
+    setFeedState(t('widgets.danmaku.connecting', '正在连接…'));
     const connection = new EventSource('/api/danmaku/events', { withCredentials: true });
     stream = connection;
     connection.onopen = () => {
       if (stream !== connection) return;
-      setFeedState(display.checked ? '弹幕已连接' : '已关闭显示');
+      setFeedState(display.checked ? t('widgets.danmaku.connected', '弹幕已连接') : t('widgets.danmaku.displayDisabled', '已关闭显示'));
       if (historyStreamInterrupted) {
         historyStreamInterrupted = false;
         restartDrawerHistory();
@@ -655,13 +647,13 @@
       }
       if (connection.readyState === EventSource.CLOSED) {
         closeStream();
-        setFeedState('连接中断，稍后重试');
+        setFeedState(t('widgets.danmaku.disconnected', '连接中断，稍后重试'));
         retryTimer = setTimeout(() => {
           retryTimer = undefined;
           connectStream();
         }, 6000);
       } else {
-        setFeedState('正在重新连接…');
+        setFeedState(t('widgets.danmaku.reconnecting', '正在重新连接…'));
       }
     };
   }
@@ -743,16 +735,19 @@
     node.dataset.status = vote.status;
     count.hidden = vote.status !== 'pending';
     if (vote.status === 'pending') {
-      label.textContent = '⚠ 已被发起禁言投票';
+      label.textContent = t('widgets.danmaku.voteStarted', '⚠ 已被发起禁言投票');
       const supported = supportedCommunityVotes.has(item.id);
       const sending = communityVoteSending.has(item.id);
-      count.textContent = `${supported ? '已支持' : sending ? '提交中' : '长按支持'}（${vote.votes}/${vote.threshold}）`;
+      count.textContent = t('widgets.danmaku.voteCount', '{action}（{votes}/{threshold}）', {
+        action: supported ? t('widgets.danmaku.voteSupported', '已支持') : sending ? t('widgets.danmaku.voteSending', '提交中') : t('widgets.danmaku.voteHold', '长按支持'),
+        votes: vote.votes, threshold: vote.threshold,
+      });
       count.disabled = supported || sending || !votable(item) || ownIds.has(item.id) || nextAvailability === false;
     } else if (vote.status === 'failed') {
-      label.textContent = '社区投票禁言未通过';
+      label.textContent = t('widgets.danmaku.voteFailedNotice', '社区投票禁言未通过');
       count.textContent = '';
     } else {
-      label.textContent = '社区禁言已生效 · 3 小时';
+      label.textContent = t('widgets.danmaku.votePassedNotice', '社区禁言已生效 · 3 小时');
       count.textContent = '';
     }
   }
@@ -913,7 +908,7 @@
 
   function appendIdentity(line, item) {
     if (item.anonymous) return;
-    const nickname = item.nickname || (item.member ? '用户' : item.admin ? '管理员' : '游客');
+    const nickname = item.nickname || (item.member ? t('widgets.danmaku.anonymousMember', '用户') : item.admin ? t('widgets.danmaku.admin', '管理员') : t('widgets.danmaku.guest', '游客'));
     if (item.member) {
       const avatar = document.createElement('span');
       avatar.className = 'danmaku-message-avatar';
@@ -940,7 +935,7 @@
 
   function paintGroupTag(badge, groupTag) {
     if (validGroupTag(groupTag)) {
-      badge.textContent = `${groupTag}群`;
+      badge.textContent = t('widgets.danmaku.groupNumber', '{group}群', { group: groupTag });
       badge.dataset.groupTag = String(groupTag);
     } else {
       delete badge.dataset.groupTag;
@@ -1392,7 +1387,7 @@
     if (item.moderation) {
       const author = document.createElement('span');
       author.className = 'danmaku-history-author';
-      author.textContent = '管理记录';
+      author.textContent = t('widgets.danmaku.moderationRecord', '管理记录');
       meta.append(author);
     } else {
       appendIdentity(meta, item);
@@ -1417,7 +1412,7 @@
       likes.className = 'danmaku-history-likes';
       const label = document.createElement('span');
       label.className = 'sr-only';
-      label.textContent = '赞 ';
+      label.textContent = t('widgets.danmaku.likes', '赞 ');
       const count = document.createElement('span');
       count.dataset.historyLikeCount = '';
       likes.append(makeHeart(), label, count);
@@ -1473,11 +1468,11 @@
     historyList.hidden = phase === 'paused';
     const hasRows = historyRows.size > 0;
     const status = {
-      loading: hasRows ? '正在更新历史弹幕…' : '正在读取历史弹幕…',
-      retrying: '暂时无法读取完整历史，正在重试…',
-      unavailable: '暂时无法读取完整历史。重新打开可重试。',
-      paused: '弹幕已暂停。',
-      ready: hasRows ? '' : '还没有历史弹幕。',
+      loading: hasRows ? t('widgets.danmaku.historyUpdating', '正在更新历史弹幕…') : t('widgets.danmaku.historyLoading', '正在读取历史弹幕…'),
+      retrying: t('widgets.danmaku.historyRetrying', '暂时无法读取完整历史，正在重试…'),
+      unavailable: t('widgets.danmaku.historyUnavailable', '暂时无法读取完整历史。重新打开可重试。'),
+      paused: t('widgets.danmaku.historyPaused', '弹幕已暂停。'),
+      ready: hasRows ? '' : t('widgets.danmaku.historyEmpty', '还没有历史弹幕。'),
     }[phase];
     if (historyStatusMessage === status) return;
     historyStatusMessage = status;
@@ -1673,9 +1668,9 @@
     composer.getBoundingClientRect();
     composer.dataset.open = 'true';
     widget.dataset.open = 'true';
-    toggleText.textContent = '样式';
+    toggleText.textContent = t('widgets.danmaku.style', '样式');
     toggle.setAttribute('aria-expanded', 'true');
-    toggle.setAttribute('aria-label', '打开弹幕设置');
+    toggle.setAttribute('aria-label', t('widgets.danmaku.settingsOpen', '打开弹幕设置'));
     syncComposerViewport();
     void refreshAdmin();
     void refreshMute();
@@ -1748,7 +1743,7 @@
   function renderAppearanceOptions(reset = false) {
     guestNickname.hidden = signedIn() && Boolean(member);
     accountSummary.hidden = !signedIn() || !member;
-    accountNickname.textContent = member?.nickname || '尚未设置昵称';
+    accountNickname.textContent = member?.nickname || t('widgets.danmaku.nicknameUnset', '尚未设置昵称');
     memberColors.hidden = !signedIn();
     const role = staffRole();
     const sponsor = member?.sponsor === true;
@@ -1774,14 +1769,18 @@
     const loginUrl = accountOrigin ? `${accountOrigin}/` : `${adminOrigin}/admin/login`;
     const destination = hasAccount ? `${adminOrigin}/admin/#/account/profile` : loginUrl;
     accountLink.href = destination;
-    accountLink.textContent = hasAccount ? '我的账号' : '登录';
+    const accountLabel = hasAccount ? t('widgets.danmaku.myAccount', '我的账号') : t('widgets.danmaku.signIn', '登录');
+    const accountCaption = hasAccount ? t('widgets.danmaku.myAccountCompact', '我的账号') : accountLabel;
+    accountLink.textContent = accountCaption;
+    if (accountCaption !== accountLabel) accountLink.setAttribute('aria-label', accountLabel);
+    else accountLink.removeAttribute('aria-label');
     if (!siteAccount || !siteAccountLabel || !siteAccountAvatar || (fixedConsoleLink && !hasAccount)) return;
     siteAccount.hidden = accountLink.hidden;
     siteAccount.href = destination;
-    siteAccount.setAttribute('aria-label', accountLink.textContent);
-    siteAccount.title = accountLink.textContent;
+    siteAccount.setAttribute('aria-label', accountLabel);
+    siteAccount.title = accountLabel;
     siteAccount.toggleAttribute('data-signed-in', hasAccount);
-    siteAccountLabel.textContent = hasAccount ? Array.from(member?.nickname || '账')[0] : '登录';
+    siteAccountLabel.textContent = hasAccount ? Array.from(member?.nickname || t('widgets.danmaku.accountInitial', '账'))[0] : t('widgets.danmaku.signIn', '登录');
 
     const avatarUrl = member?.avatarTag ? adminEndpoint(`avatar?v=${member.avatarTag}`) : null;
     if (siteAccountAvatar.getAttribute('src') === avatarUrl) return;
@@ -1833,9 +1832,9 @@
     if (historyButton) historyButton.inert = true;
     composer.dataset.open = 'false';
     widget.dataset.open = 'false';
-    toggleText.textContent = '弹';
+    toggleText.textContent = t('widgets.danmaku.chat', '弹');
     toggle.setAttribute('aria-expanded', 'false');
-    toggle.setAttribute('aria-label', '打开弹幕输入栏');
+    toggle.setAttribute('aria-label', t('widgets.danmaku.composerOpen', '打开弹幕输入栏'));
     clearTimeout(closeTimer);
     closeTimer = setTimeout(() => { composer.hidden = true; }, reducedMotion.matches ? 0 : 350);
     syncComposerViewport();
@@ -1871,7 +1870,7 @@
     if (nickname === null) {
       nicknameInput.setAttribute('aria-invalid', 'true');
       appearanceStatus.textContent = nicknameUnits(nicknameInput.value.trim()) > NICKNAME_LIMIT
-        ? NICKNAME_LENGTH_MESSAGE : '昵称含有无法显示的字符。';
+        ? NICKNAME_LENGTH_MESSAGE : t('widgets.danmaku.nicknameInvalid', '昵称含有无法显示的字符。');
       nicknameInput.focus({ preventScroll: true });
       return;
     }
@@ -1986,8 +1985,8 @@
       cancelHistoricalReplay(true);
     }
     clearChips();
-    if (!display.checked) setFeedState('已关闭显示');
-    else if (stream?.readyState === EventSource.OPEN) setFeedState('弹幕已连接');
+    if (!display.checked) setFeedState(t('widgets.danmaku.displayDisabled', '已关闭显示'));
+    else if (stream?.readyState === EventSource.OPEN) setFeedState(t('widgets.danmaku.connected', '弹幕已连接'));
     connectStream();
   });
   reducedMotion.addEventListener?.('change', event => {
@@ -2009,7 +2008,7 @@
       closeModeration(false);
       if (!hasSent && !currentMute.muted) closeStream();
       clearChips();
-      setFeedState('暂时暂停');
+      setFeedState(t('widgets.danmaku.paused', '暂时暂停'));
     } else {
       connectStream();
     }
@@ -2022,7 +2021,7 @@
     const bounded = limitText(input.value);
     if (bounded !== input.value) {
       input.value = bounded;
-      setStatus('最多 60 个字，请删减后再发送。', 'error');
+      setStatus(t('widgets.danmaku.sendMax', '最多 {max} 个字，请删减后再发送。', { max: MAX_CODE_POINTS }), 'error');
     } else if (status.dataset.tone === 'error') {
       setStatus('');
     }
@@ -2161,12 +2160,15 @@
       const own = ownIds.has(target.item.id);
       const supported = supportedCommunityVotes.has(target.item.id);
       communityButton.disabled = communityVoteSending.has(target.item.id) || own || supported || finished || nextAvailability === false || (!pending && cooldown > 0);
-      if (own) communityLabel.textContent = '不能投自己的弹幕';
-      else if (pending) communityLabel.textContent = `${supported ? '已支持' : '支持禁言'}（${vote.votes}/${vote.threshold}）`;
-      else if (vote?.status === 'failed') communityLabel.textContent = '社区投票未通过';
-      else if (vote?.status === 'passed') communityLabel.textContent = '社区禁言已生效';
-      else if (cooldown > 0) communityLabel.textContent = `发起禁言投票（还剩 ${cooldown} 秒）`;
-      else communityLabel.textContent = '发起禁言投票';
+      if (own) communityLabel.textContent = t('widgets.danmaku.voteOwn', '不能投自己的弹幕');
+      else if (pending) communityLabel.textContent = t('widgets.danmaku.voteCount', '{action}（{votes}/{threshold}）', {
+        action: supported ? t('widgets.danmaku.voteSupported', '已支持') : t('widgets.danmaku.voteSupport', '支持禁言'),
+        votes: vote.votes, threshold: vote.threshold,
+      });
+      else if (vote?.status === 'failed') communityLabel.textContent = t('widgets.danmaku.voteFailed', '社区投票未通过');
+      else if (vote?.status === 'passed') communityLabel.textContent = t('widgets.danmaku.votePassed', '社区禁言已生效');
+      else if (cooldown > 0) communityLabel.textContent = t('widgets.danmaku.voteCooldownLabel', '发起禁言投票（还剩 {seconds} 秒）', { seconds: cooldown });
+      else communityLabel.textContent = t('widgets.danmaku.startVote', '发起禁言投票');
     }
     if (actionMenu.hidden) return;
     const rect = target.node.getBoundingClientRect();
@@ -2185,7 +2187,7 @@
     actionMenuReturnFocus = document.activeElement;
     const management = mobile && moderator && !item.admin && !item.moderation && !item.id.startsWith('local-echo:');
     actionMenuTarget = { item, node, fromHistory, management };
-    actionMenu.setAttribute('aria-label', `弹幕操作：${item.text}`);
+    actionMenu.setAttribute('aria-label', t('widgets.danmaku.actionsForMessage', '弹幕操作：{message}', { message: item.text }));
     if (!fromHistory) layer.dataset.paused = 'true';
     clearTimeout(actionMenuCloseTimer);
     actionMenu.hidden = false;
@@ -2222,6 +2224,23 @@
     requestMotion();
   }
 
+  function communityVoteError(payload) {
+    if (locale === 'zh-CN' && payload?.error) return payload.error;
+    switch (payload?.code) {
+      case 'community_vote_action_invalid': return t('widgets.danmaku.voteInvalid', '投票操作有误');
+      case 'community_vote_start_forbidden': return t('widgets.danmaku.voteRestricted', '只有普通登录用户可以发起社区禁言投票');
+      case 'community_vote_login_required': return t('widgets.danmaku.voteSignIn', '请先登录普通账号，再发起或支持社区禁言投票');
+      case 'community_vote_not_found': return t('widgets.danmaku.voteMissing', '这条弹幕没有正在进行的社区禁言投票');
+      case 'community_vote_processing': return t('widgets.danmaku.voteProcessing', '这条社区禁言投票正在处理');
+      case 'community_vote_exists': return t('widgets.danmaku.voteExists', '这条弹幕已有进行中的投票，请选择支持');
+      case 'community_vote_target_unavailable': return t('widgets.danmaku.voteTargetUnavailable', '这条弹幕无法发起社区禁言投票');
+      case 'duplicate_vote': return t('widgets.danmaku.voteDuplicate', '这个账号或设备已投过票');
+      case 'community_vote_closed': return t('widgets.danmaku.voteEnded', '这条投票已结束。');
+      case 'community_vote_self_vote': return t('widgets.danmaku.voteOwn', '不能投自己的弹幕');
+      default: return t('widgets.danmaku.voteUnavailable', '暂时无法提交投票。');
+    }
+  }
+
   async function submitCommunityVote(item, action) {
     if (!item || !votable(item) || ownIds.has(item.id) || supportedCommunityVotes.has(item.id) ||
         communityVoteSending.has(item.id) || nextAvailability === false) return;
@@ -2232,7 +2251,7 @@
     };
     const cooldown = remainingCommunityCooldownSeconds();
     if (action === 'start' && cooldown > 0) {
-      feedback(`发起社区禁言投票还需等待 ${cooldown} 秒。`, true);
+      feedback(t('widgets.danmaku.voteCooldown', '发起社区禁言投票还需等待 {seconds} 秒。', { seconds: cooldown }), true);
       return;
     }
     communityVoteSending.add(item.id);
@@ -2253,19 +2272,19 @@
         const retryAfter = Number(response.headers.get('Retry-After'));
         if (Number.isFinite(retryAfter) && retryAfter > 0) setCommunityCooldown(retryAfter);
         const remaining = remainingCommunityCooldownSeconds();
-        feedback(`发起社区禁言投票还需等待 ${remaining || Math.ceil(retryAfter || 0)} 秒。`, true);
+        feedback(t('widgets.danmaku.voteCooldown', '发起社区禁言投票还需等待 {seconds} 秒。', { seconds: remaining || Math.ceil(retryAfter || 0) }), true);
       } else if (!response.ok) {
         if (payload?.code === 'duplicate_vote') supportedCommunityVotes.add(item.id);
-        feedback(payload?.error || '暂时无法提交投票。', payload?.code !== 'duplicate_vote');
+        feedback(communityVoteError(payload), payload?.code !== 'duplicate_vote');
       } else if (payload?.vote && payload.vote.status !== 'failed') {
         supportedCommunityVotes.add(item.id);
         if (actionMenuTarget?.item.id === item.id) closeActionMenu();
-        if (action === 'support') showNotice(payload.vote.status === 'passed' ? '社区禁言已生效。' : '已支持社区禁言。', false);
+        if (action === 'support') showNotice(payload.vote.status === 'passed' ? t('widgets.danmaku.votePassedStatus', '社区禁言已生效。') : t('widgets.danmaku.voteSupportedStatus', '已支持社区禁言。'), false);
       } else {
-        feedback('这条投票已结束。', true);
+        feedback(t('widgets.danmaku.voteEnded', '这条投票已结束。'), true);
       }
     } catch {
-      feedback('社区投票暂时失败，请稍后重试。', true);
+      feedback(t('widgets.danmaku.voteError', '社区投票暂时失败，请稍后重试。'), true);
     } finally {
       communityVoteSending.delete(item.id);
       if (supportedCommunityVotes.size > MAX_HISTORY_QUEUE) supportedCommunityVotes.delete(supportedCommunityVotes.values().next().value);
@@ -2278,9 +2297,9 @@
     if (!button || button.disabled || !actionMenuTarget) return;
     const { item, node, fromHistory } = actionMenuTarget;
     if (button.dataset.action === 'select') {
-      setActionMenuStatus(selectMessageText(node) ? '已选择弹幕文字。' : '无法选择这条弹幕。');
+      setActionMenuStatus(selectMessageText(node) ? t('widgets.danmaku.selected', '已选择弹幕文字。') : t('widgets.danmaku.selectFailed', '无法选择这条弹幕。'));
     } else if (button.dataset.action === 'copy') {
-      setActionMenuStatus(await copyMessageText(item.text) ? '已复制弹幕。' : '复制失败，请长按文字选择。', 'error');
+      setActionMenuStatus(await copyMessageText(item.text) ? t('widgets.danmaku.copied', '已复制弹幕。') : t('widgets.danmaku.copyFailed', '复制失败，请长按文字选择。'), 'error');
     } else if (button.dataset.action === 'management-ban') {
       closeActionMenu(false);
       openModeration(item, fromHistory);
@@ -2295,7 +2314,7 @@
     const seconds = Math.max(0, Math.ceil(remaining / 1000));
     const blocked = nextAvailability === false || (loginRequired && !mirrorPrimaryUnavailable) || (!mirrorPrimaryUnavailable && currentMute.muted && !(signedIn() && gold));
     const showCooldown = seconds > 0 && !blocked;
-    const label = showCooldown ? seconds + ' 秒' : '发送';
+    const label = showCooldown ? t('widgets.danmaku.sendCooldown', '{seconds} 秒', { seconds }) : t('widgets.danmaku.send', '发送');
     if (sendLabel.textContent !== label) sendLabel.textContent = label;
     sendLabel.classList.toggle('sr-only', !showCooldown);
     sendButton.toggleAttribute('data-cooldown', showCooldown);
@@ -2348,7 +2367,7 @@
     loginRequired = true;
     checkedAdminAt = 0;
     setPostingIdentity();
-    setStatus('登录已过期，请重新登录。', 'error');
+    setStatus(t('widgets.danmaku.sessionExpired', '登录已过期，请重新登录。'), 'error');
     if (!composer.inert && options.inert) openOptions(true);
   }
 
@@ -2406,14 +2425,14 @@
     return checkingAdmin;
   }
 
-  const expiryFormat = new Intl.DateTimeFormat('zh-CN', {
+  const expiryFormat = new Intl.DateTimeFormat(locale, {
     timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
   });
 
   function muteMessage() {
-    if (currentMute.source === 'community') return `社区禁言至 ${expiryFormat.format(new Date(currentMute.expiresAt))}（北京时间），期间不能发弹幕。`;
-    if (!currentMute.expiresAt) return '你已被管理员永久封禁。';
-    return `管理员封禁至 ${expiryFormat.format(new Date(currentMute.expiresAt))}（北京时间）。`;
+    if (currentMute.source === 'community') return t('widgets.danmaku.communityMuteUntil', '社区禁言至 {time}（北京时间），期间不能发弹幕。', { time: expiryFormat.format(new Date(currentMute.expiresAt)) });
+    if (!currentMute.expiresAt) return t('widgets.danmaku.permanentBanNotice', '你已被管理员永久封禁。');
+    return t('widgets.danmaku.adminBanUntil', '管理员封禁至 {time}（北京时间）。', { time: expiryFormat.format(new Date(currentMute.expiresAt)) });
   }
 
   function showNotice(message, muted) {
@@ -2448,8 +2467,8 @@
       setStatus(muteMessage(), 'error');
       showNotice(muteMessage(), true);
     } else if (wasMuted && !muted) {
-      setStatus('禁言已解除，可以发送弹幕了。', '');
-      showNotice('禁言已解除，可以发送弹幕了。', false);
+      setStatus(t('widgets.danmaku.muteLifted', '禁言已解除，可以发送弹幕了。'), '');
+      showNotice(t('widgets.danmaku.muteLifted', '禁言已解除，可以发送弹幕了。'), false);
     }
   }
 
@@ -2532,7 +2551,7 @@
     requestMotion();
     moderation.hidden = false;
     moderation.inert = false;
-    moderationTitle.textContent = '封禁账号和设备';
+    moderationTitle.textContent = t('widgets.danmaku.banTitle', '封禁账号和设备');
     moderationQuote.textContent = item.text;
     moderationActions.hidden = false;
     setModerationDuration();
@@ -2565,23 +2584,23 @@
   }
 
   function forbiddenMessage() {
-    return signedIn() ? '当前账号暂时不能发送，请到控制台查看账号状态。' : '无法从当前页面发送，请刷新后重试。';
+    return signedIn() ? t('widgets.danmaku.sendAccountBlocked', '当前账号暂时不能发送，请到控制台查看账号状态。') : t('widgets.danmaku.sendPageBlocked', '无法从当前页面发送，请刷新后重试。');
   }
 
   function nonceFailureReason(status, code) {
-    if (code === 'mirror_control_only') return '应急管理请通过备用机执行。';
+    if (code === 'mirror_control_only') return t('widgets.danmaku.mirrorOnly', '应急管理请通过备用机执行。');
     if (status === 403) return forbiddenMessage();
-    if (status === 429) return '待用的发送凭证太多，请稍后再试。';
-    if (status >= 500) return '弹幕暂时不可用，请稍后再试。';
-    return `发送凭证获取失败（${status}），请刷新页面后重试。`;
+    if (status === 429) return t('widgets.danmaku.nonceRate', '待用的发送凭证太多，请稍后再试。');
+    if (status >= 500) return t('widgets.danmaku.sendUnavailable', '弹幕暂时不可用，请稍后再试。');
+    return t('widgets.danmaku.nonceFailed', '发送凭证获取失败（{status}），请刷新页面后重试。', { status });
   }
 
   function sendFailureMessage(error, viaConsole) {
     if (error instanceof DanmakuRequestError) return error.reason;
-    if (error?.name === 'AbortError' || error?.name === 'TimeoutError') return '发送超时，请检查网络后重试。';
+    if (error?.name === 'AbortError' || error?.name === 'TimeoutError') return t('widgets.danmaku.sendTimeout', '发送超时，请检查网络后重试。');
     // A failed cross-origin request hides its status; the console host refused it or was unreachable.
-    if (error instanceof TypeError) return viaConsole ? '无法连接账号服务，请刷新页面后重试。' : '网络连接失败，请稍后重试。';
-    return '发送暂时失败，请稍后重试。';
+    if (error instanceof TypeError) return viaConsole ? t('widgets.danmaku.accountConnection', '无法连接账号服务，请刷新页面后重试。') : t('widgets.danmaku.network', '网络连接失败，请稍后重试。');
+    return t('widgets.danmaku.sendError', '发送暂时失败，请稍后重试。');
   }
 
   async function requestDanmakuNonce(url, signal, admin = false) {
@@ -2600,9 +2619,16 @@
     const payload = await response.json().catch(() => null);
     const nonce = payload?.nonce;
     if (typeof nonce !== 'string' || !/^[a-f0-9]{48}$/.test(nonce)) {
-      throw new DanmakuRequestError('发送凭证无效，请刷新页面后重试。');
+      throw new DanmakuRequestError(t('widgets.danmaku.nonceInvalid', '发送凭证无效，请刷新页面后重试。'));
     }
     return nonce;
+  }
+
+  function moderationFailureMessage(response, result) {
+    if (locale === 'zh-CN' && result?.error) return result.error;
+    if (result?.code === 'stale_request') return t('widgets.danmaku.banStale', '禁言请求已失效，请重试');
+    if (response.status === 404) return t('widgets.danmaku.banTargetGone', '这条弹幕已过期或已下架');
+    return t('widgets.danmaku.banError', '暂时无法封禁，请重试。');
   }
 
   async function submitMute() {
@@ -2613,7 +2639,7 @@
     savingMute = true;
     for (const control of [...durationButtons, ...durationInputs, moderationConfirm]) control.disabled = true;
     moderationActions.setAttribute('data-saving', '');
-    moderationStatus.textContent = '正在封禁…';
+    moderationStatus.textContent = t('widgets.danmaku.banSaving', '正在封禁…');
     try {
       const signal = AbortSignal.timeout?.(9000);
       const nonce = await requestDanmakuNonce(adminEndpoint('nonce?action=mute'), signal, true);
@@ -2626,17 +2652,17 @@
       const result = await response.json().catch(() => ({}));
       if (response.status === 401) {
         expireAdmin();
-        showNotice('管理员登录已过期，请重新登录。', true);
+        showNotice(t('widgets.danmaku.adminExpired', '管理员登录已过期，请重新登录。'), true);
       } else if (response.ok && result.mute) {
         forgetRemoved([item.id]);
         closeModeration();
-        showNotice('已封禁。', false);
+        showNotice(t('widgets.danmaku.banApplied', '已封禁。'), false);
       } else if (expected === moderationRevision) {
-        moderationStatus.textContent = result.error || '暂时无法封禁，请重试。';
+        moderationStatus.textContent = moderationFailureMessage(response, result);
       }
     } catch (error) {
       if (expected === moderationRevision) {
-        moderationStatus.textContent = error instanceof DanmakuRequestError ? error.reason : '暂时无法封禁，请重试。';
+        moderationStatus.textContent = error instanceof DanmakuRequestError ? error.reason : t('widgets.danmaku.banError', '暂时无法封禁，请重试。');
       }
     } finally {
       savingMute = false;
@@ -2676,7 +2702,9 @@
       setModerationDuration(valid ? `${input.value}${input.dataset.durationUnit}` : '', null, input);
       if (invalid) {
         input.setAttribute('aria-invalid', 'true');
-        moderationStatus.textContent = `请输入 1–${input.max} ${isHours ? '小时' : '天'}的整数。`;
+        moderationStatus.textContent = isHours
+          ? t('widgets.danmaku.invalidHours', '请输入 1–{max} 小时的整数。', { max: input.max })
+          : t('widgets.danmaku.invalidDays', '请输入 1–{max} 天的整数。', { max: input.max });
       } else input.removeAttribute('aria-invalid');
     });
   }
@@ -2779,18 +2807,18 @@
   });
 
   function retryMessage(response, code) {
-    if (code === 'mirror_control_only') return '应急管理请通过备用机执行。';
-    if (code === 'nickname') return member ? '这个昵称不能使用，请到控制台修改。' : '这个昵称不能使用，请在弹幕设置里修改。';
-    if (response.status === 400) return '内容格式不正确，请修改后再试。';
+    if (code === 'mirror_control_only') return t('widgets.danmaku.mirrorOnly', '应急管理请通过备用机执行。');
+    if (code === 'nickname') return member ? t('widgets.danmaku.nicknameAccountRejected', '这个昵称不能使用，请到控制台修改。') : t('widgets.danmaku.nicknameGuestRejected', '这个昵称不能使用，请在弹幕设置里修改。');
+    if (response.status === 400) return t('widgets.danmaku.sendInvalid', '内容格式不正确，请修改后再试。');
     if (response.status === 403) return forbiddenMessage();
-    if (response.status === 409 && code === 'stale_request') return '这次发送已失效，请再按一次发送。';
+    if (response.status === 409 && code === 'stale_request') return t('widgets.danmaku.sendStale', '这次发送已失效，请再按一次发送。');
     if (response.status === 429) {
-      if (signedIn()) return '弹幕现在太忙，请稍后再试。';
-      if (code === 'duplicate') return '这条弹幕刚发过，请稍后再试。';
-      return remainingSendCooldown() > 0 ? '发送太频繁，请等倒计时结束。' : '发送太频繁，请稍后再试。';
+      if (signedIn()) return t('widgets.danmaku.sendBusy', '弹幕现在太忙，请稍后再试。');
+      if (code === 'duplicate') return t('widgets.danmaku.sendDuplicate', '这条弹幕刚发过，请稍后再试。');
+      return remainingSendCooldown() > 0 ? t('widgets.danmaku.sendWait', '发送太频繁，请等倒计时结束。') : t('widgets.danmaku.sendRate', '发送太频繁，请稍后再试。');
     }
-    if (response.status >= 500) return '弹幕暂时不可用，请稍后再试。';
-    return `发送失败（${response.status}），请稍后重试。`;
+    if (response.status >= 500) return t('widgets.danmaku.sendUnavailable', '弹幕暂时不可用，请稍后再试。');
+    return t('widgets.danmaku.sendFailed', '发送失败（{status}），请稍后重试。', { status: response.status });
   }
 
   form.addEventListener('submit', async event => {
@@ -2801,17 +2829,17 @@
     const draft = input.value;
     const text = draft.replace(/[\u0000-\u001f\u007f-\u009f]/gu, ' ').replace(/\s+/gu, ' ').trim();
     if (!text) {
-      setStatus('先写点内容再发送。', 'error');
+      setStatus(t('widgets.danmaku.sendEmpty', '先写点内容再发送。'), 'error');
       input.focus({ preventScroll: true });
       return;
     }
     if (codePointCount(text) > MAX_CODE_POINTS) {
-      setStatus('最多 60 个字，请删减后再发送。', 'error');
+      setStatus(t('widgets.danmaku.sendMax', '最多 {max} 个字，请删减后再发送。', { max: MAX_CODE_POINTS }), 'error');
       input.focus({ preventScroll: true });
       return;
     }
 
-    setStatus('正在发送…');
+    setStatus(t('widgets.danmaku.sending', '正在发送…'));
     sendController = new AbortController();
     form.dataset.mirrorSendInProgress = 'true';
     updateSend();
@@ -2820,7 +2848,7 @@
     try {
       await refreshAdmin();
       if ((loginRequired && !mirrorPrimaryUnavailable) || (!mirrorPrimaryUnavailable && currentMute.muted && !(signedIn() && gold))) {
-        setStatus(loginRequired && !mirrorPrimaryUnavailable ? '请重新登录后再发送。' : muteMessage(), 'error');
+        setStatus(loginRequired && !mirrorPrimaryUnavailable ? t('widgets.danmaku.signInAgain', '请重新登录后再发送。') : muteMessage(), 'error');
         return;
       }
       if (nextAvailability === false || remainingSendCooldown() > 0) return;
@@ -2900,7 +2928,7 @@
       }
       if (input.value === draft) input.value = '';
       updateCount();
-      if (nextAvailability !== false) setStatus(item ? '已发送。' : '已提交，但暂时无法显示这条弹幕。', item ? 'success' : '');
+      if (nextAvailability !== false) setStatus(item ? t('widgets.danmaku.sent', '已发送。') : t('widgets.danmaku.sentNotDisplayed', '已提交，但暂时无法显示这条弹幕。'), item ? 'success' : '');
     } catch (error) {
       setStatus(sendFailureMessage(error, viaConsole), 'error');
     } finally {

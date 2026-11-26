@@ -1,6 +1,9 @@
 (() => {
   'use strict';
 
+  const t = (key, fallback, params) => window.SiteI18n?.t(key, fallback, params) ??
+    (params ? fallback.replace(/\{(\w+)\}/g, (token, name) => params[name] ?? token) : fallback);
+
   const get = id => document.getElementById(id);
   const state = get('sponsorState');
   const list = get('sponsorList');
@@ -39,9 +42,13 @@
     return frame;
   }
 
+  const nicknameOf = sponsor => typeof sponsor.nickname === 'string' && sponsor.nickname.trim()
+    ? sponsor.nickname
+    : t('widgets.thanks.unnamed', '未设置昵称');
+
   function makeEntry(sponsor, index) {
-    const name = typeof sponsor.nickname === 'string' && sponsor.nickname.trim() ? sponsor.nickname.trim() : '未设置昵称';
-    const message = typeof sponsor.message === 'string' ? sponsor.message.trim() : '';
+    const name = nicknameOf(sponsor);
+    const message = typeof sponsor.message === 'string' ? sponsor.message : '';
     const item = document.createElement('li');
     item.className = 'roll-entry';
     // 入场错峰只覆盖前 24 项，之后同时出现，避免长名单等待过久
@@ -53,7 +60,7 @@
     title.className = 'roll-name';
     title.textContent = name;
     body.append(title);
-    if (message) {
+    if (message.trim()) {
       const quote = document.createElement('p');
       quote.className = 'roll-message';
       quote.textContent = message;
@@ -238,7 +245,7 @@
     setState('loading');
     count.textContent = '';
     try {
-      const response = await fetch('/api/sponsors', { headers: { Accept: 'application/json' } });
+      const response = await fetch(window.SiteI18n?.url('/api/sponsors') ?? '/api/sponsors', { headers: { Accept: 'application/json' } });
       if (!response.ok) throw new Error('Sponsor list unavailable');
       const { sponsors } = await response.json();
       if (!Array.isArray(sponsors)) throw new Error('Invalid sponsor response');
@@ -246,10 +253,11 @@
       list.replaceChildren(...entries.map(makeEntry));
       sky.show(entries.map(item => ({
         id: item.id,
-        name: typeof item.nickname === 'string' && item.nickname.trim() ? item.nickname.trim() : '未设置昵称',
+        name: nicknameOf(item),
         avatar: item.avatar,
       })));
-      count.textContent = entries.length ? `共 ${entries.length} 位` : '';
+      count.textContent = entries.length === 1 ? t('widgets.thanks.countOne', '共 1 位')
+        : entries.length ? t('widgets.thanks.count', '共 {count} 位', { count: entries.length }) : '';
       setState(entries.length ? 'ready' : 'empty');
     } catch {
       list.replaceChildren();

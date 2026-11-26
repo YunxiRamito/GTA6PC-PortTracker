@@ -5,6 +5,11 @@
 (function () {
   'use strict';
 
+  const t = (key, fallback, params) => window.SiteI18n?.t?.(key, fallback, params) ??
+    (params ? fallback.replace(/\{(\w+)\}/g, (token, name) => Object.hasOwn(params, name) ? params[name] : token) : fallback);
+  const localizedUrl = url => window.SiteI18n?.url?.(url) ?? url;
+  const locale = window.SiteI18n?.locale || 'zh-CN';
+
   var $ = function (id) { return document.getElementById(id); };
   var state = {
     data: null,
@@ -20,12 +25,13 @@
     if (state.loading) return;
     state.loading = true;
     try {
-      var res = await fetch('/api/dashboard?_=' + Date.now(), {
+      var url = '/api/dashboard?_=' + Date.now();
+      var res = await fetch(window.SiteI18n?.withLocale?.(url) ?? url, {
         headers: { Accept: 'application/json' }, cache: 'no-store', signal: AbortSignal.timeout(25_000),
       });
       if (!res.ok) throw new Error('HTTP ' + res.status + ' ' + res.statusText);
       var json = await res.json();
-      if (!json || !Array.isArray(json.projects)) throw new Error('响应格式无效');
+      if (!json || !Array.isArray(json.projects)) throw new Error(t('home.archive.invalidResponse', '响应格式无效'));
       state.data = json;
       renderAll();
     } catch (err) {
@@ -126,7 +132,8 @@
     toggle.setAttribute('aria-expanded', canExpand && state.projectsExpanded ? 'true' : 'false');
     if (!canExpand) return;
     var label = controlLabel(toggle, '#projectsToggleLabel');
-    var text = state.projectsExpanded ? '收起项目' : '再看 ' + Math.max(0, matchCount - PROJECT_PREVIEW_LIMIT) + ' 个项目';
+    var text = state.projectsExpanded ? t('home.archive.collapse', '收起项目') :
+      t('home.archive.expand', '再看 {count} 个项目', { count: Math.max(0, matchCount - PROJECT_PREVIEW_LIMIT) });
     if (label.textContent !== text) label.textContent = text;
   }
 
@@ -286,7 +293,7 @@
     var toggle = $('projectsToggle');
     var canExpand = Boolean(toggle) && list.length > PROJECT_PREVIEW_LIMIT;
     var shown = canExpand && !state.projectsExpanded ? list.slice(0, PROJECT_PREVIEW_LIMIT) : list;
-    var summary = '显示 ' + shown.length + ' / ' + list.length + ' 个项目';
+    var summary = t('home.archive.count', '显示 {shown} / {total} 个项目', { shown: shown.length, total: list.length });
     if (info.textContent !== summary) info.textContent = summary;
 
     var active = document.activeElement;
@@ -380,15 +387,15 @@
   }
 
   function statLabel(icon, label) {
-    return octicon(icon) + '<span class="sr-only">' + label + '：</span>';
+    return octicon(icon) + '<span class="sr-only">' + escapeHtml(t('home.label', '{label}：', { label: label })) + '</span>';
   }
 
   function progressCopy(progress, open) {
-    var text = escapeHtml(progress || '暂无进展记录。');
+    var text = escapeHtml(progress || t('home.archive.noProgress', '暂无进展记录。'));
     if (progress.length <= 80) return '<p class="card-progress-text">' + text + '</p>';
     return '<p class="card-progress-text card-progress-preview">' + text + '</p>' +
       '<details class="card-progress-details"' + (open ? ' open' : '') + '>' +
-        '<summary class="card-progress-toggle">完整进展</summary>' +
+        '<summary class="card-progress-toggle">' + escapeHtml(t('home.archive.fullProgress', '完整进展')) + '</summary>' +
         '<p class="card-progress-text">' + text + '</p>' +
       '</details>';
   }
@@ -428,7 +435,18 @@
         result.sort(function (a, b) { return a.at - b.at; });
       }
     }
-    return result;
+    return result.map(function (item) {
+      return { key: item.key, label: builtinMilestoneLabel(item.key, item.label), at: item.at };
+    });
+  }
+
+  function builtinMilestoneLabel(key, label) {
+    // Older dashboards can still use these built-in names during a rolling update.
+    if (key === 'menu' && label === '主菜单') return t('home.port.stage.mainMenu', label);
+    if (key === 'stable' && label === '稳定游玩') return t('home.port.stage.stableGameplay', label);
+    var builtin = key === 'rendered' ? '完全渲染' : portScoreLib?.MILESTONES?.find(function (item) { return item.key === key; })?.label;
+    // API and editorial labels take precedence over the built-in labels.
+    return builtin && (label === builtin || label === key) ? t('home.port.stage.' + key, label) : label;
   }
 
   function factorText(value, fallback) {
@@ -452,19 +470,21 @@
     var gta = pp && pp.gta && typeof pp.gta === 'object' ? pp.gta : {};
     var factors = pp && (pp.factors || pp.factorSummary) && typeof (pp.factors || pp.factorSummary) === 'object'
       ? (pp.factors || pp.factorSummary) : {};
+    var unknown = t('home.status.unknown', '待核实');
     var rendered = typeof gta.rendered === 'number' && Number.isFinite(gta.rendered)
       ? Math.round(Math.min(1, Math.max(0, gta.rendered)) * 100) + '%'
-      : (gta.rendered === true || gta.rendered === 1 ? '完全渲染' : '待核实');
-    var stability = factorText(factors.stability, factorText(gta.stability, '待核实'));
+      : gta.rendered === true ? t('home.port.stage.rendered', '完全渲染') : unknown;
+    var stability = factorText(factors.stability, factorText(gta.stability, 'unknown'));
+    var stabilityLabel = ownValue(cardStabilityLabels, stability);
     var rows = [
-      ['性能', factorText(factors.performance || factors.fps, typeof gta.fps === 'number' ? gta.fps + ' FPS' : '待核实')],
-      ['渲染', factorText(factors.rendering || factors.render, rendered)],
-      ['稳定性', ownValue(cardStabilityLabels, stability) || stability],
-      ['完整性', factorText(factors.completeness || factors.integrity, factorText(pp.completeness, '待核实'))],
+      [t('home.port.factor.performance', '性能'), factorText(factors.performance || factors.fps, typeof gta.fps === 'number' ? gta.fps + ' FPS' : unknown)],
+      [t('home.port.factor.rendering', '渲染'), factorText(factors.rendering || factors.render, rendered)],
+      [t('home.port.factor.stability', '稳定性'), stabilityLabel ? t('home.port.stability.' + stability, stabilityLabel) : stability],
+      [t('home.port.factor.completeness', '完整性'), factorText(factors.completeness || factors.integrity, factorText(pp.completeness, unknown))],
     ];
     var hasSource = Object.keys(factors).length || Object.keys(gta).length || pp.completeness !== undefined;
     if (!hasSource) return '';
-    return '<div class="card-port-factors" aria-label="项目进度说明">' + rows.map(function (row) {
+    return '<div class="card-port-factors" aria-label="' + escapeAttr(t('home.port.factors', '项目进度说明')) + '">' + rows.map(function (row) {
       return '<div class="card-port-factor"><span>' + escapeHtml(row[0]) + '</span><b>' + escapeHtml(row[1]) + '</b></div>';
     }).join('') + '</div>';
   }
@@ -478,7 +498,7 @@
       return '<i style="left:' + m.at + '%"></i>';
     }).join('');
     var reachedIndex = milestones.findIndex(function (m) { return m.key === scored.reached; });
-    var reachedLabel = milestones[reachedIndex]?.label || scored.reachedLabel;
+    var reachedLabel = milestones[reachedIndex]?.label || builtinMilestoneLabel(scored.reached, scored.reachedLabel);
     var labels = milestones.map(function (m, index) {
       var mobileKey = index === 0 || index === milestones.length - 1 || m.key === 'ingame';
       return '<div class="ppl-item' + (index <= reachedIndex ? ' is-reached' : '') +
@@ -493,7 +513,7 @@
         var v = typeof gw[g.key] === 'number' ? Math.min(1, Math.max(0, gw[g.key])) : 0;
         var pct = Math.round(v * 100);
         return '<div class="card-port-gw-row">' +
-          '<span>' + escapeHtml(g.label) + '</span><b>' + pct + '%</b>' +
+          '<span>' + escapeHtml(t('home.port.groundwork.' + g.key, g.label)) + '</span><b>' + pct + '%</b>' +
           '<div class="card-port-gw-bar"><i class="progress-motion-fill" data-progress-key="' + g.key + '" style="--w:' + pct + '%"></i></div>' +
           '</div>';
       }).join('') + '</div>';
@@ -501,18 +521,19 @@
     var pp = p.portProgress;
     var factors = cardPortFactors(pp);
     var works = Array.isArray(pp.works) && pp.works.length
-      ? '<div class="card-port-works"><p class="card-port-works-title">已经能做到</p><ul>' +
+      ? '<div class="card-port-works"><p class="card-port-works-title">' + escapeHtml(t('home.port.works', '已经能做到')) + '</p><ul>' +
         pp.works.slice(0, 6).map(function (w) { return '<li>' + escapeHtml(w) + '</li>'; }).join('') +
         '</ul></div>' : '';
     var blocking = Array.isArray(pp.blocking) && pp.blocking.length
-      ? '<div class="card-port-blocking"><p class="card-port-blocking-title">卡在哪里</p><ul>' +
+      ? '<div class="card-port-blocking"><p class="card-port-blocking-title">' + escapeHtml(t('home.port.blockers', '卡在哪里')) + '</p><ul>' +
         pp.blocking.slice(0, 6).map(function (b) { return '<li>' + escapeHtml(b) + '</li>'; }).join('') +
         '</ul></div>' : '';
     var verLabels = { verified: '已独立复测', 'self-reported': '自述/未验证', unverified: '待核实' };
     var verCls = { verified: 'card-port-verified', 'self-reported': 'card-port-self', unverified: 'card-port-unverified' };
     var ver = pp.verification ? ownValue(verLabels, pp.verification) : '';
-    var verTag = ver ? '<span class="' + (ownValue(verCls, pp.verification) || '') + '">' + escapeHtml(ver) + '</span>' : '';
-    var assessed = pp.assessedAt ? '<span>评估于 ' + escapeHtml(pp.assessedAt) + '</span>' : '';
+    var verTag = ver ? '<span class="' + (ownValue(verCls, pp.verification) || '') + '">' +
+      escapeHtml(t('home.port.verification.' + pp.verification, ver)) + '</span>' : '';
+    var assessed = pp.assessedAt ? '<span>' + escapeHtml(t('home.port.assessed', '评估于 {date}', { date: assessmentDate(pp.assessedAt) })) + '</span>' : '';
     var meta = (verTag || assessed) ? '<div class="card-port-meta">' + verTag + assessed + '</div>' : '';
     var hasDetails = gwRows || works || blocking || meta;
     return '<div class="card-port-progress">' +
@@ -520,28 +541,30 @@
         '<span class="card-port-score-num">' + score.toFixed(1) + '<small>%</small></span>' +
         '<span class="card-port-score-milestone">' + escapeHtml(reachedLabel) + '</span>' +
       '</div>' +
-      '<div class="card-port-track" role="img" aria-label="移植进度 ' + score.toFixed(1) + '%">' +
+      '<div class="card-port-track" role="img" aria-label="' + escapeAttr(t('home.port.score', '移植进度 {score}%', { score: score.toFixed(1) })) + '">' +
         '<div class="card-port-fill progress-motion-fill" data-progress-key="score" style="--w:' + score + '%"></div>' +
         '<div class="card-port-ticks">' + ticks + '</div>' +
       '</div>' +
       '<div class="card-port-labels port-progress-labels">' + labels + '</div>' +
       factors +
       (hasDetails
-        ? '<details class="card-port-details"' + (open ? ' open' : '') + '><summary>详情</summary>' + gwRows + works + blocking + meta + '</details>'
+        ? '<details class="card-port-details"' + (open ? ' open' : '') + '><summary>' + escapeHtml(t('home.port.details', '详情')) + '</summary>' + gwRows + works + blocking + meta + '</details>'
         : '') +
     '</div>';
   }
 
   function evidenceLevel(evidence) {
     if (!evidence) return '';
-    var level = ownValue(evidenceLevels, evidence.level);
-    if (!level) return '';
-    return evidence.level !== 'unverified' && !safeHttpsUrl(evidence.sourceUrl) ? evidenceLevels.unverified : level;
+    if (!ownValue(evidenceLevels, evidence.level)) return '';
+    var level = evidence.level !== 'unverified' && !safeHttpsUrl(evidence.sourceUrl) ? 'unverified' : evidence.level;
+    return t('home.evidence.' + level, evidenceLevels[level]);
   }
 
   function evidenceTag(evidence) {
     var level = evidenceLevel(evidence);
-    return level ? '<p class="card-evidence-tag">证据：' + escapeHtml(level) + '</p>' : '';
+    if (!level) return '';
+    if (locale === 'zh-CN') return '<p class="card-evidence-tag">证据：' + escapeHtml(level) + '</p>';
+    return '<p class="card-evidence-tag">' + escapeHtml(t('home.evidence.label', '证据：{level}', { level: level })) + '</p>';
   }
 
   function evidenceCopy(evidence, open) {
@@ -557,22 +580,24 @@
     return '<details class="card-evidence card-evidence-details"' + (open ? ' open' : '') + '>' +
       '<summary class="card-evidence-toggle">' + line + '</summary>' +
       '<div class="card-evidence-body">' +
-        (blocker ? '<p>限制：' + escapeHtml(blocker) + '</p>' : '') +
-        (sourceUrl ? '<a class="card-evidence-link" href="' + escapeAttr(sourceUrl) + '" target="_blank" rel="noopener noreferrer">查看来源</a>' : '') +
+        (blocker ? '<p>' + escapeHtml(t('home.evidence.limitation', '限制：{text}', { text: blocker })) + '</p>' : '') +
+        (sourceUrl ? '<a class="card-evidence-link" href="' + escapeAttr(localizedUrl(sourceUrl)) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(t('home.source.view', '查看来源')) + '</a>' : '') +
       '</div>' +
     '</details>';
   }
   function cardHtml(p, statusMap, open, progress) {
-    var title = plainText(p.title) || String(p.repo || '').split('/').pop() || '未命名项目';
-    var summary = plainText(p.summary) || '暂无简明介绍，详情请查看原仓库。';
-    var type = ownValue(typeLabels, p.type) || p.typeLabel || p.type || '类型未标注';
-    var status = ownValue(statusLabels, p.status) || p.statusLabel || (ownValue(statusMap, p.status) || {}).label || p.status || '状态未标注';
-    var url = escapeAttr(safeHttpsUrl(p.url));
+    var title = plainText(p.title) || String(p.repo || '').split('/').pop() || t('home.archive.untitled', '未命名项目');
+    var summary = plainText(p.summary) || t('home.archive.noSummary', '暂无简明介绍，详情请查看原仓库。');
+    var type = ownValue(typeLabels, p.type);
+    type = type ? t('home.archive.type.' + p.type, type) : p.typeLabel || p.type || t('home.archive.noType', '类型未标注');
+    var status = ownValue(statusLabels, p.status);
+    status = status ? t('home.archive.status.' + p.status, status) : p.statusLabel || (ownValue(statusMap, p.status) || {}).label || p.status || t('home.archive.noStatus', '状态未标注');
+    var url = escapeAttr(localizedUrl(safeHttpsUrl(p.url)));
     var gh = p.github || {};
     var stars = gh.stars != null ? formatNum(gh.stars) : '—';
     var forks = gh.forks != null ? formatNum(gh.forks) : '—';
     var issues = gh.openIssues != null ? gh.openIssues : '—';
-    var pushed = gh.pushedAt ? relativeTime(gh.pushedAt) : (p.daysSincePush != null ? p.daysSincePush + '天前' : '—');
+    var pushed = gh.pushedAt ? relativeTime(gh.pushedAt) : (p.daysSincePush != null ? timeAgo(p.daysSincePush, 'day', '天') : '—');
     var fallbackIcon = '<svg class="ui-icon card-logo card-logo-fallback" viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
       '<use href="/assets/ui/fluent.svg#document"></use></svg>';
     var anchorId = projectAnchorId(p.repo);
@@ -586,7 +611,7 @@
       cardPortProgress(p, open.portProgress.has(p.repo), progress) +
       '<div class="card-progress">' +
         '<div class="card-progress-header">' +
-          '<h4 class="card-progress-label">最新进展</h4>' +
+          '<h4 class="card-progress-label">' + escapeHtml(t('home.archive.latestProgress', '最新进展')) + '</h4>' +
           '<span class="status-badge" style="background:' + safeColor(p.statusColor) + '"><span class="dot" aria-hidden="true"></span>' + escapeHtml(status) + '</span>' +
         '</div>' +
         evidenceTag(p.evidence) +
@@ -595,13 +620,13 @@
       '</div>' +
       '<footer class="card-foot">' +
         '<div class="card-stats">' +
-          '<span class="stat star">' + statLabel('star-16', '星标') + '<b>' + escapeHtml(stars) + '</b></span>' +
-          '<span class="stat">' + statLabel('repo-forked-16', '复刻') + '<b>' + escapeHtml(forks) + '</b></span>' +
-          '<span class="stat">' + statLabel('issue-opened-16', '未关闭议题') + '<b>' + escapeHtml(issues) + '</b></span>' +
-          '<span class="stat">' + statLabel('clock-16', '最近推送') + '<b>' + escapeHtml(pushed) + '</b></span>' +
+          '<span class="stat star">' + statLabel('star-16', t('home.archive.stat.stars', '星标')) + '<b>' + escapeHtml(stars) + '</b></span>' +
+          '<span class="stat">' + statLabel('repo-forked-16', t('home.archive.stat.forks', '复刻')) + '<b>' + escapeHtml(forks) + '</b></span>' +
+          '<span class="stat">' + statLabel('issue-opened-16', t('home.archive.stat.issues', '未关闭议题')) + '<b>' + escapeHtml(issues) + '</b></span>' +
+          '<span class="stat">' + statLabel('clock-16', t('home.archive.stat.lastPush', '最近推送')) + '<b>' + escapeHtml(pushed) + '</b></span>' +
         '</div>' +
         '<span class="card-type">' + escapeHtml(type) + '</span>' +
-        (url ? '<a class="card-link" href="' + url + '" target="_blank" rel="noopener">' + octicon('eye-16') + '查看仓库</a>' : '') +
+        (url ? '<a class="card-link" href="' + url + '" target="_blank" rel="noopener">' + octicon('eye-16') + escapeHtml(t('home.archive.viewRepo', '查看仓库')) + '</a>' : '') +
       '</footer>' +
     '</article>';
   }
@@ -650,24 +675,25 @@
   function externalCardHtml(progress, open = false, progressScale) {
     var title = escapeHtml(progress.title);
     var score = String(progress.score);
-    var label = progress.privateRepository ? '私有仓库' : (progress.legacyCommunity ? '社区构建' : '外部评估');
+    var label = progress.privateRepository ? t('home.archive.privateRepo', '私有仓库') :
+      progress.legacyCommunity ? t('home.archive.communityBuild', '社区构建') : t('home.archive.externalAssessment', '外部评估');
     var anchor = progress.anchorId ? ' id="' + escapeAttr(progress.anchorId) + '" data-project-anchor="' + escapeAttr(progress.anchorId) + '"' : '';
     var archiveKey = progress.key ? ' data-archive-key="' + escapeAttr(progress.key) + '"' : '';
     var progressBar = progress.build ? cardPortProgress(progress.build, open, progressScale) :
       '<div class="card-port-progress">' +
         '<div class="card-port-score-row" aria-hidden="true"><span class="card-port-score-num">' + score + '<small>%</small></span></div>' +
-        '<div class="card-port-track" role="progressbar" aria-label="' + title + ' 进度"' +
+        '<div class="card-port-track" role="progressbar" aria-label="' + escapeAttr(t('home.archive.externalProgress', '{title} 进度', { title: progress.title })) + '"' +
           ' aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + score + '">' +
           '<div class="card-port-fill progress-motion-fill" data-progress-key="score" style="--w:' + score + '%"></div>' +
         '</div>' +
       '</div>';
     return '<article class="card card-external' + (progress.privateRepository ? ' card-private-repository' : '') + '"' + anchor + archiveKey + ' data-external-progress>' +
-      '<p class="card-external-label">' + label + '</p>' +
+      '<p class="card-external-label">' + escapeHtml(label) + '</p>' +
       '<h3 class="card-title">' + title + '</h3>' +
       '<p class="card-summary card-block">' + escapeHtml(progress.summary) + '</p>' +
       progressBar +
-      '<a class="text-link card-external-source" href="' + escapeAttr(progress.sourceUrl) + '" target="_blank" rel="noopener noreferrer">' +
-        '<span>运行记录 · ' + escapeHtml(progress.sourceLabel) + '</span>' +
+      '<a class="text-link card-external-source" href="' + escapeAttr(localizedUrl(progress.sourceUrl)) + '" target="_blank" rel="noopener noreferrer">' +
+        '<span>' + escapeHtml(t('home.archive.runSource', '运行记录 · {source}', { source: progress.sourceLabel })) + '</span>' +
         '<svg class="ui-icon" aria-hidden="true"><use href="/assets/ui/fluent.svg#arrow-up-right"></use></svg>' +
       '</a>' +
     '</article>';
@@ -677,6 +703,16 @@
     timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
   });
+
+  var timelineLocalDay = locale === 'zh-CN' ? null : new Intl.DateTimeFormat(locale, {
+    timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
+  });
+
+  function assessmentDate(value) {
+    if (!timelineLocalDay || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+    var date = new Date(value);
+    return isNaN(date.getTime()) ? value : timelineLocalDay.format(date);
+  }
 
   function timelineDateHtml(value) {
     var recorded = String(value == null ? '' : value).trim();
@@ -701,8 +737,9 @@
       }
     }
 
-    var content = '<strong class="tl-date-day">' + (day || '日期未记录') + '</strong> ' +
-      '<span class="tl-time">' + (minute || '时间未记录') + '</span>';
+    if (day && timelineLocalDay) day = timelineLocalDay.format(new Date(day + 'T00:00:00+08:00'));
+    var content = '<strong class="tl-date-day">' + escapeHtml(day || t('home.date.missing', '日期未记录')) + '</strong> ' +
+      '<span class="tl-time">' + escapeHtml(minute || t('home.time.missing', '时间未记录')) + '</span>';
     return datetime ? '<time class="tl-date" datetime="' + escapeAttr(datetime) + '">' + content + '</time>'
       : '<span class="tl-date">' + content + '</span>';
   }
@@ -738,20 +775,21 @@
     });
     var list = ordered.filter(function (t, i) { return i < 40 || newsAnchorId(t.id); });
     var ids = new Set();
-    var html = list.map(function (t) {
-      var kind = t.kind === 'commit' ? 'commit' : (t.kind === 'release' ? 'release' : 'milestone');
-      var title = escapeHtml(plainText(t.title) || '收录了一条项目动态');
-      var url = safeHttpsUrl(t.url);
-      var titleHtml = url ? '<a href="' + escapeAttr(url) + '" target="_blank" rel="noopener">' + title + '</a>' : title;
-      var repo = t.repo ? '<span class="tl-repo">@' + escapeHtml(t.repo) + '</span>' : '';
-      var id = newsAnchorId(t.id);
+    var html = list.map(function (item) {
+      var kind = item.kind === 'commit' ? 'commit' : (item.kind === 'release' ? 'release' : 'milestone');
+      var title = plainText(item.title) || t('home.timeline.untitled', '收录了一条项目动态');
+      var url = safeHttpsUrl(item.url);
+      var titleHtml = url ? '<a href="' + escapeAttr(localizedUrl(url)) + '" target="_blank" rel="noopener">' + escapeHtml(title) + '</a>' : escapeHtml(title);
+      var repo = item.repo ? '<span class="tl-repo">@' + escapeHtml(item.repo) + '</span>' : '';
+      var id = newsAnchorId(item.id);
       if (ids.has(id)) id = '';
       if (id) ids.add(id);
-      var correction = id && t.correction === true;
-      var anchor = id ? ' id="' + id + '" tabindex="-1" role="group" aria-label="' + (correction ? '更正：' : '') + title + '"' : '';
+      var correction = id && item.correction === true;
+      var label = correction ? t('home.timeline.correctedTitle', '更正：{title}', { title: title }) : title;
+      var anchor = id ? ' id="' + id + '" tabindex="-1" role="group" aria-label="' + escapeAttr(label) + '"' : '';
       return '<div class="timeline-item" data-kind="' + kind + '"' + anchor + '>' +
-        timelineDateHtml(t.date) +
-        '<div class="tl-title">' + (correction ? '<span class="tl-correction">更正</span>' : '') + titleHtml + repo + '</div>' +
+        timelineDateHtml(item.date) +
+        '<div class="tl-title">' + (correction ? '<span class="tl-correction">' + escapeHtml(t('home.timeline.correction', '更正')) + '</span>' : '') + titleHtml + repo + '</div>' +
       '</div>';
     }).join('');
     if (timelineHtml !== html) {
@@ -760,7 +798,8 @@
       var focused = container.contains(active) && active.closest('.timeline-item[id]');
       var toggle = $('timelineToggle');
       timelineHtml = html;
-      container.innerHTML = html || '<div class="timeline-item"><div class="tl-title">暂无时间线数据</div></div>';
+      container.innerHTML = html || '<div class="timeline-item"><div class="tl-title">' +
+        escapeHtml(t('home.timeline.empty', '暂无时间线数据')) + '</div></div>';
       var restored = focused && newsRow(focused.id);
       if (outsideTimelinePreview(restored)) state.timelineExpanded = true;
       if (toggle) syncTimeline(toggle, list.length);
@@ -788,7 +827,8 @@
     toggle.hidden = shortList;
     toggle.dataset.total = total;
     toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
-    toggle.querySelector('.tl-toggle-text').textContent = expanded ? '收起时间线' : '展开全部 ' + total + ' 条';
+    toggle.querySelector('.tl-toggle-text').textContent = expanded ? t('home.timeline.collapse', '收起时间线') :
+      t('home.timeline.expand', '展开全部 {total} 条', { total: total });
   }
 
   function syncNewsHighlight() {
@@ -860,21 +900,29 @@
     followNewsHash();
   }
 
+  var timeAgoFormatter = locale === 'zh-CN' ? null : new Intl.RelativeTimeFormat(locale);
+
+  function timeAgo(count, unit, chineseUnit) {
+    if (!Number.isFinite(Number(count))) return '—';
+    return timeAgoFormatter ? timeAgoFormatter.format(-Number(count), unit) : count + chineseUnit + '前';
+  }
+
   function relativeTime(iso) {
     var diff = Date.now() - new Date(iso).getTime();
     var d = Math.floor(diff / 86400000);
-    if (d <= 0) return '今天';
-    if (d === 1) return '昨天';
-    if (d < 30) return d + '天前';
-    if (d < 365) return Math.floor(d / 30) + '月前';
-    return Math.floor(d / 365) + '年前';
+    if (d <= 0) return t('home.time.today', '今天');
+    if (d === 1) return t('home.time.yesterday', '昨天');
+    if (d < 30) return timeAgo(d, 'day', '天');
+    if (d < 365) return timeAgo(Math.floor(d / 30), 'month', '月');
+    return timeAgo(Math.floor(d / 365), 'year', '年');
   }
 
   /* ---------------- states ---------------- */
   function setEmptyStateCopy(loadFailed) {
     var empty = $('emptyState');
-    empty.querySelector('h3').textContent = loadFailed ? '暂时无法读取项目' : '暂无项目';
-    empty.querySelector('p').textContent = loadFailed ? '稍后会自动重试。' : '工程档案暂未收录项目。';
+    empty.querySelector('h3').textContent = loadFailed ? t('home.archive.failed', '暂时无法读取项目') : t('home.archive.empty', '暂无项目');
+    empty.querySelector('p').textContent = loadFailed ? t('home.archive.retry', '稍后会自动重试。') :
+      t('home.archive.emptyNote', '工程档案暂未收录项目。');
   }
 
   function showLoadFailure() {
@@ -882,7 +930,7 @@
     $('timelineList').innerHTML = '';
     setEmptyStateCopy(true);
     $('emptyState').hidden = false;
-    $('resultsInfo').textContent = '暂时无法读取项目。';
+    $('resultsInfo').textContent = t('home.archive.failedSummary', '暂时无法读取项目。');
   }
 
   /* ---------------- utils ---------------- */

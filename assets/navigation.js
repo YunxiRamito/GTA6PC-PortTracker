@@ -1,6 +1,8 @@
 (() => {
   'use strict';
 
+  const t = (key, fallback) => window.SiteI18n?.t(key, fallback) ?? fallback;
+
   const root = document.documentElement;
   const topbar = document.querySelector('[data-site-topbar]');
   const nav = topbar?.querySelector('.site-nav');
@@ -19,6 +21,8 @@
   let backdropPress = false;
 
   const GITHUB_REPOSITORY_URL = 'https://github.com/YunxiRamito/GTA6PC-PortTracker';
+  // Primer Octicons mark-github-16, e6626e159c4ba786d512e252182b62617014c752 (MIT; see assets/ui/Octicons-LICENSE.txt).
+  const GITHUB_MARK_PATH = 'M6.766 11.328c-2.063-.25-3.516-1.734-3.516-3.656 0-.781.281-1.625.75-2.188-.203-.515-.172-1.609.063-2.062.625-.078 1.468.25 1.968.703.594-.187 1.219-.281 1.985-.281.765 0 1.39.094 1.953.265.484-.437 1.344-.765 1.969-.687.218.422.25 1.515.046 2.047.5.593.766 1.39.766 2.203 0 1.922-1.453 3.375-3.547 3.64.531.344.89 1.094.89 1.954v1.625c0 .468.391.734.86.547C13.781 14.359 16 11.53 16 8.03 16 3.61 12.406 0 7.984 0 3.563 0 0 3.61 0 8.031a7.88 7.88 0 0 0 5.172 7.422c.422.156.828-.125.828-.547v-1.25c-.219.094-.5.156-.75.156-1.031 0-1.64-.562-2.078-1.609-.172-.422-.36-.672-.719-.719-.187-.015-.25-.093-.25-.187 0-.188.313-.328.625-.328.453 0 .844.281 1.25.86.313.452.64.655 1.031.655s.641-.14 1-.5c.266-.265.47-.5.657-.656';
   const loopback = /^(?:localhost|127\.0\.0\.1|\[::1\])$/;
 
   function readOrigin(value) {
@@ -43,23 +47,22 @@
     cluster.append(brand);
 
     const link = document.createElement('a');
-    link.className = 'site-github-link';
+    link.className = 'nav-action site-github-link';
     link.href = GITHUB_REPOSITORY_URL;
     link.target = '_blank';
     link.rel = 'noopener noreferrer';
-    link.setAttribute('aria-label', 'GitHub 仓库（在新标签页打开）');
+    link.title = t('widgets.nav.repository', 'GitHub 仓库');
+    link.setAttribute('aria-label', t('widgets.nav.repositoryLabel', 'GitHub 仓库（在新标签页打开）'));
 
+    // The admin and account hosts do not serve the public Octicons sprite.
     const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     icon.classList.add('ui-icon');
     icon.setAttribute('aria-hidden', 'true');
-    const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
-    const adminTopbar = topbar.dataset.siteTopbar === 'login' || topbar.dataset.siteTopbar === 'console';
-    use.setAttribute('href', adminTopbar ? '/assets/ui/fluent.svg#document' : '/assets/ui/octicons.svg#repo-16');
-    icon.append(use);
-
-    const label = document.createElement('span');
-    label.textContent = 'GitHub 仓库';
-    link.append(icon, label);
+    icon.setAttribute('viewBox', '0 0 16 16');
+    const path = document.createElementNS(icon.namespaceURI, 'path');
+    path.setAttribute('d', GITHUB_MARK_PATH);
+    icon.append(path);
+    link.append(icon);
     cluster.append(link);
   }
 
@@ -68,7 +71,8 @@
 
   if (publicOrigin) {
     for (const link of document.querySelectorAll('[data-site-topbar] [data-site-path], #siteMenu [data-site-path]')) {
-      link.href = new URL(link.dataset.sitePath, publicOrigin).href;
+      const destination = new URL(link.dataset.sitePath, publicOrigin).href;
+      link.href = window.SiteI18n?.url(destination) ?? destination;
     }
   }
 

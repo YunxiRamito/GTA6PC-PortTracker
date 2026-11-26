@@ -6,10 +6,11 @@ const path = require('node:path');
 
 const ROOT = path.join(__dirname, '..');
 const { createFixtures } = require('../fixtures/demo');
+const { BUILD_TRANSLATION_FIELDS, NEWS_TRANSLATION_FIELDS, copyTranslations, validateContentTranslations } = require('./_content-locale');
 const SECTIONS = ['home', 'countdown', 'roadmap', 'announcements', 'downloads', 'news', 'projects', 'community'];
 const PUBLIC_SECTIONS = ['home', 'countdown', 'roadmap', 'announcements', 'downloads', 'community'];
 const RETIRED_ROADMAP_FIELDS = new Set(['currentStep', 'note', 'steps']);
-const BUILD_FIELDS = ['title', 'summary', 'sourceLabel', 'sourceUrl', 'portProgress'];
+const BUILD_FIELDS = ['title', 'summary', 'sourceLabel', 'sourceUrl', 'portProgress', 'translations'];
 const PRIVATE_REPOSITORY_FIELDS = new Set(['id', ...BUILD_FIELDS]);
 const COMMUNITY_BUILD_FIELDS = new Set(BUILD_FIELDS);
 const TYPES = {
@@ -201,7 +202,7 @@ function validateContent(content) {
       const loc = 'roadmap.externalProgress';
       check(object(roadmap.externalProgress), loc, '需要对象');
       if (object(roadmap.externalProgress)) {
-        const allowed = new Set(['title', 'score', 'summary', 'sourceLabel', 'sourceUrl']);
+        const allowed = new Set(['title', 'score', 'summary', 'sourceLabel', 'sourceUrl', 'translations']);
         for (const key of Object.keys(roadmap.externalProgress)) {
           check(allowed.has(key), `${loc}.${key}`, '不是支持字段');
         }
@@ -317,6 +318,7 @@ function validateContent(content) {
       Array.isArray(community.groups) && community.groups.length === 0,
     'community.groups', '演示版必须使用空列表',
   );
+  if (errors.length < 60) validateContentTranslations(content, check, RETIRED_ROADMAP_FIELDS);
   return errors;
 }
 
@@ -353,14 +355,20 @@ function projectPublicContent(content) {
     const byId = new Map(content.news.map(item => [item.id, item]));
     selected = newsIds.map(id => byId.get(id)).filter(Boolean);
   }
-  result.home = { ...home, latestNews: selected.map(({ id, title, correction }) => ({ id, title, correction: correction === true })) };
+  result.home = { ...home, latestNews: selected.map(item => ({
+    id: item.id, title: item.title, correction: item.correction === true, ...copyTranslations(item, NEWS_TRANSLATION_FIELDS),
+  })) };
   return result;
 }
 
 function projectPrivateRepositories(roadmap) {
-  return (roadmap?.privateRepositories ?? []).map(({ id, title, summary, sourceLabel, sourceUrl, portProgress }) => ({
-    id: 'private-repo-' + id, title, summary, sourceLabel, sourceUrl, portProgress,
-  }));
+  return (roadmap?.privateRepositories ?? []).map(item => {
+    const { id, title, summary, sourceLabel, sourceUrl, portProgress } = item;
+    return {
+      id: 'private-repo-' + id, title, summary, sourceLabel, sourceUrl, portProgress,
+      ...copyTranslations(item, BUILD_TRANSLATION_FIELDS),
+    };
+  });
 }
 
 function mergeCompatibleRoadmap(saved, proposed) {

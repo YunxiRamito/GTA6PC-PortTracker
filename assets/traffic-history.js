@@ -1,6 +1,9 @@
 (() => {
   'use strict';
 
+  const t = (key, fallback, params) => window.SiteI18n?.t(key, fallback, params) ??
+    (params ? fallback.replace(/\{(\w+)\}/g, (token, name) => params[name] ?? token) : fallback);
+
   const board = document.getElementById('trafficBoard');
   const note = board?.querySelector('.traffic-history-note');
   const plots = Array.from(board?.querySelectorAll('canvas[data-traffic-series]') || []);
@@ -8,7 +11,7 @@
 
   const windowSeconds = 6 * 60 * 60;
   const refreshMs = 120_000;
-  const formatNumber = new Intl.NumberFormat(document.documentElement.lang || undefined);
+  const formatNumber = new Intl.NumberFormat(window.SiteI18n?.locale || document.documentElement.lang || undefined);
   let history;
   let loadedAt = -Infinity;
   let pending = false;
@@ -105,10 +108,13 @@
       ctx.fill();
     }
 
-    const label = name === 'online' ? '在线人数' : '总访问量';
+    const label = name === 'online' ? t('widgets.trafficHistory.online', '在线人数') : t('widgets.trafficHistory.visits', '总访问量');
     const latest = formatNumber.format(values.at(-1));
-    const range = high === low ? '' : `，范围 ${formatNumber.format(low)} 到 ${formatNumber.format(high)}`;
-    canvas.setAttribute('aria-label', `最近 6 小时${label}趋势，最近记录 ${latest}${range}`);
+    const range = high === low ? '' :
+      t('widgets.trafficHistory.range', '，范围 {low} 到 {high}', { low: formatNumber.format(low), high: formatNumber.format(high) });
+    canvas.setAttribute('aria-label', t('widgets.trafficHistory.chart', '最近 {hours} 小时{label}趋势，最近记录 {latest}{range}', {
+      hours: windowSeconds / 3600, label, latest, range,
+    }));
   }
 
   function draw() {
@@ -117,15 +123,15 @@
 
   function showCoverage() {
     const points = history.points;
-    if (points.length < 2) setNote('数据积累中');
-    else setNote(points[0].time - history.from > history.sampleMs * 1.6 ? '已显示目前记录' : '');
+    if (points.length < 2) setNote(t('widgets.trafficHistory.collecting', '数据积累中'));
+    else setNote(points[0].time - history.from > history.sampleMs * 1.6 ? t('widgets.trafficHistory.coverage', '已显示目前记录') : '');
   }
 
   async function refresh() {
     clearTimeout(timer);
     if (!board.open || document.hidden) return;
     if (navigator.onLine === false) {
-      setNote(history ? '离线 · 显示上次记录' : '离线 · 趋势暂不可用');
+      setNote(history ? t('widgets.trafficHistory.offlineCached', '离线 · 显示上次记录') : t('widgets.trafficHistory.offlineUnavailable', '离线 · 趋势暂不可用'));
       return;
     }
     if (pending) return;
@@ -137,7 +143,7 @@
     }
 
     pending = true;
-    if (!history) setNote('正在读取趋势…');
+    if (!history) setNote(t('widgets.trafficHistory.loading', '正在读取趋势…'));
     try {
       const response = await fetch('/api/traffic/history', {
         cache: 'no-store', credentials: 'same-origin', signal: AbortSignal.timeout(8_000),
@@ -148,7 +154,7 @@
       draw();
       showCoverage();
     } catch {
-      setNote(history ? '暂时未能更新趋势' : '趋势暂不可用');
+      setNote(history ? t('widgets.trafficHistory.updateFailed', '暂时未能更新趋势') : t('widgets.trafficHistory.unavailable', '趋势暂不可用'));
     } finally {
       pending = false;
       if (board.open && !document.hidden && navigator.onLine !== false) timer = setTimeout(refresh, refreshMs);

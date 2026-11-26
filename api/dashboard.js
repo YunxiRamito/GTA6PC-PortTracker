@@ -1,6 +1,7 @@
 'use strict';
 
 const { TYPES, STATUSES, projectPrivateRepositories } = require('./_content');
+const { BUILD_TRANSLATION_FIELDS, NEWS_TRANSLATION_FIELDS, copyTranslations } = require('./_content-locale');
 const { overall: portOverall } = require('../assets/port-score');
 const { createProgressHistory } = require('./_progress-history');
 
@@ -145,6 +146,7 @@ function createDashboard({ fetchGitHub = fetch, now = Date.now, initial = new Ma
     const editorial = content.news.map(n => ({
       id: n.id, correction: n.correction === true, repo: n.repo || '', date: n.date, title: n.title, kind: 'milestone',
       url: n.sourceUrl || (n.repo && !n.repo.startsWith('demo-workshop/') ? `https://github.com/${n.repo}` : ''),
+      ...copyTranslations(n, NEWS_TRANSLATION_FIELDS),
     }));
     const currentLive = live.filter(n => repos.has(repoKey(n.repo))).sort(newestFirst).slice(0, LIVE_TIMELINE_LIMIT);
     const timeline = [...editorial, ...currentLive].sort(newestFirst);
@@ -154,7 +156,7 @@ function createDashboard({ fetchGitHub = fetch, now = Date.now, initial = new Ma
     const communityBuild = community && {
       id: 'community-build', title: community.title, summary: community.summary,
       sourceLabel: community.sourceLabel, sourceUrl: community.sourceUrl,
-      status: 'progress', portProgress: community.portProgress,
+      status: 'progress', portProgress: community.portProgress, ...copyTranslations(community, BUILD_TRANSLATION_FIELDS),
     };
     const privateRepositories = projectPrivateRepositories(content.roadmap);
     const portOv = portOverall([...projects, ...(communityBuild ? [communityBuild] : []), ...privateRepositories]);
@@ -203,6 +205,7 @@ function createDashboard({ fetchGitHub = fetch, now = Date.now, initial = new Ma
         summary: external.summary,
         sourceLabel: external.sourceLabel,
         sourceUrl: external.sourceUrl,
+        ...copyTranslations(external, BUILD_TRANSLATION_FIELDS),
       };
     }
     return result;

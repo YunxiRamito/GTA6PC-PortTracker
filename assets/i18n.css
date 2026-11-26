@@ -1,0 +1,100 @@
+html[lang='ja'], html[lang='ja'] :is(.site-topbar, .chapter-menu) {
+  --body: Barlow, 'Yu Gothic UI', 'Hiragino Sans', 'Meiryo', system-ui, sans-serif;
+  --display: 'Barlow Condensed', 'Arial Narrow', 'Yu Gothic UI', 'Hiragino Sans', 'Meiryo', sans-serif;
+}
+
+.site-language { position: relative; flex: none; }
+.site-language .site-language-toggle { inline-size: 42px; padding-inline: 0; }
+.site-language-toggle[aria-expanded='true'] { border-color: #e4d6fb; color: #fff; background: #2b2541; }
+.site-language .site-language-toggle .ui-icon { inline-size: 20px; block-size: 20px; }
+.site-language-options {
+  position: absolute;
+  z-index: 2;
+  inset: calc(100% + .45rem) 0 auto auto;
+  inline-size: 10rem;
+  box-sizing: border-box;
+  padding: .3rem;
+  border: 1px solid #705b7d;
+  border-radius: .8rem;
+  background: #211c31;
+  box-shadow: 0 .6rem 1.6rem #0a07118c;
+  opacity: 0;
+  visibility: hidden;
+  translate: 0 -.35rem;
+  pointer-events: none;
+  transition: opacity 190ms var(--ease), translate 230ms var(--ease), visibility 0s linear 230ms;
+}
+.site-language.is-open .site-language-options {
+  opacity: 1;
+  visibility: visible;
+  translate: 0;
+  pointer-events: auto;
+  transition-delay: 0s;
+}
+.site-language-options a {
+  display: flex;
+  align-items: center;
+  min-block-size: 2.65rem;
+  padding-inline: .7rem;
+  border-radius: .45rem;
+  color: #f5eafa;
+  font-size: .92rem;
+  transition: background-color 180ms var(--ease), color 180ms var(--ease);
+}
+.site-language-options a[aria-current] { color: #ffd0bd; background: #3d2e46; }
+.site-language-options a:is(:hover, :focus-visible) { color: #fff; background: #51405c; outline-offset: -2px; }
+
+.danmaku-translate-control {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .25rem .65rem;
+  padding-block: .25rem .55rem;
+}
+.danmaku-history:has(.danmaku-translate-control) { grid-template-rows: auto auto minmax(0, 1fr); }
+.danmaku-history:has(.danmaku-translate-control):has(.danmaku-history-status:not(:empty)) {
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+}
+.danmaku-translate-control button {
+  min-block-size: 2rem;
+  padding: .2rem .65rem;
+  border: 1px solid #806c8a;
+  border-radius: .55rem;
+  background: #2d223e;
+  color: #fff0ed;
+  font: inherit;
+  font-size: .83rem;
+  transition: border-color 190ms var(--ease), background-color 190ms var(--ease), opacity 190ms var(--ease);
+}
+.danmaku-translate-control button:is(:hover:not(:disabled), [aria-pressed='true']) { border-color: #ffc7d5; background: #51324c; }
+.danmaku-translate-control button:not(:disabled) { cursor: pointer; }
+.danmaku-translate-control button:disabled { opacity: .68; }
+.danmaku-translate-control p { flex: 1 1 9rem; margin: 0; color: #d6c6e0; font-size: .75rem; line-height: 1.38; }
+.danmaku-history-item .danmaku-machine-translation {
+  display: none;
+  align-items: baseline;
+  gap: .38rem;
+  margin: .35rem 0 0;
+  color: #f0dccf;
+  font-size: .84rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  opacity: 0;
+  translate: 0 -.2rem;
+  transition: display 180ms allow-discrete, opacity 180ms var(--ease), translate 180ms var(--ease);
+}
+.has-auto-translation .danmaku-history-item .danmaku-machine-translation { display: flex; opacity: 1; translate: 0; }
+@starting-style {
+  .has-auto-translation .danmaku-history-item .danmaku-machine-translation { opacity: 0; translate: 0 -.2rem; }
+}
+.danmaku-machine-translation > :first-child { color: #d6aabd; font-size: .72rem; }
+
+@media (max-width: 390px) {
+  .site-topbar:has(.site-language) .nav-actions > :is(.music-toggle, .site-account, .menu-toggle),
+  .site-topbar .site-language .site-language-toggle { min-inline-size: 38px; inline-size: 38px; }
+  .site-topbar:has(.site-language) .site-brand .brand-word { letter-spacing: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .site-language-options, .site-language-options a,
+  .danmaku-translate-control button, .danmaku-history-item .danmaku-machine-translation { transition: none !important; }
+}

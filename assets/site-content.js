@@ -1,6 +1,13 @@
+function homeTranslator(window) {
+  return (key, fallback, params) => window.SiteI18n?.t?.(key, fallback, params) ??
+    (params ? fallback.replace(/\{(\w+)\}/g, (token, name) => Object.hasOwn(params, name) ? params[name] : token) : fallback);
+}
+
 function createGameplayProgressRenderer(document, window) {
   'use strict';
 
+  const t = homeTranslator(window);
+  const localizedUrl = url => window.SiteI18n?.url?.(url) ?? url;
   const statuses = new Set(['planned', 'unknown', 'reported', 'completed', 'blocked']);
   const recordStatuses = new Set(['reported', 'completed', 'blocked']);
   const statusLabels = {
@@ -10,6 +17,7 @@ function createGameplayProgressRenderer(document, window) {
     completed: '已核实',
     blocked: '受阻',
   };
+  const statusLabel = status => t('home.status.' + status, statusLabels[status]);
   const section = document.getElementById('gameplay-stages');
   const title = document.getElementById('gameplayProgressTitle');
   const defaultTitle = title ? title.textContent : '';
@@ -25,8 +33,10 @@ function createGameplayProgressRenderer(document, window) {
   const buttons = new Map();
   const exiting = new Map();
   const labelPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-  const validText = (value, maximum) => typeof value === 'string' &&
-    value.trim().length > 0 && value.length <= maximum && !value.includes('\0');
+  // Match the longer public translation fields in api/_content-locale.js.
+  const hasEditorialTranslations = window.SiteI18n?.locale === 'en' || window.SiteI18n?.locale === 'ja';
+  const validText = (value, maximum, localizedMaximum = maximum) => typeof value === 'string' &&
+    value.trim().length > 0 && value.length <= (hasEditorialTranslations ? localizedMaximum : maximum) && !value.includes('\0');
   let records = [];
   // undefined follows the default stage, '' keeps the panel collapsed, and an ID keeps the visitor's choice.
   let choice;
@@ -119,7 +129,7 @@ function createGameplayProgressRenderer(document, window) {
     button.append(
       element('span', 'gameplay-progress-index', String(index + 1).padStart(2, '0')),
       element('span', 'gameplay-progress-label', record.label),
-      element('span', 'gameplay-progress-status', statusLabels[record.status]),
+      element('span', 'gameplay-progress-status', statusLabel(record.status)),
     );
     button.addEventListener('click', () => {
       choice = selectedId === record.id ? '' : record.id;
@@ -142,26 +152,26 @@ function createGameplayProgressRenderer(document, window) {
   function detailBody(record) {
     const body = element('div', `gameplay-progress-detail-body is-${record ? record.status : 'hint'}`);
     if (!record) {
-      body.append(element('p', 'gameplay-progress-detail-hint', '点选阶段查看依据'));
+      body.append(element('p', 'gameplay-progress-detail-hint', t('home.gameplay.hint', '点选阶段查看依据')));
       return body;
     }
     const heading = element('p', 'gameplay-progress-detail-stage');
     heading.append(
       element('span', 'gameplay-progress-detail-label', record.label),
-      element('span', 'gameplay-progress-detail-status', statusLabels[record.status]),
+      element('span', 'gameplay-progress-detail-status', statusLabel(record.status)),
     );
     body.append(heading);
-    body.append(element('p', 'gameplay-progress-evidence', record.evidence || '暂无公开依据。'));
-    if (record.testedOn) body.append(element('p', 'gameplay-progress-tested', `测试对象：${record.testedOn}`));
+    body.append(element('p', 'gameplay-progress-evidence', record.evidence || t('home.gameplay.noEvidence', '暂无公开依据。')));
+    if (record.testedOn) body.append(element('p', 'gameplay-progress-tested', t('home.gameplay.testedOn', '测试对象：{target}', { target: record.testedOn })));
     if (record.verificationWarning) body.append(element('p', 'gameplay-progress-caution', record.verificationWarning));
     if (record.source) {
       const source = element('a', 'gameplay-progress-source');
       const label = sourceLabel(record.source);
-      source.href = record.source.href;
+      source.href = localizedUrl(record.source.href);
       source.target = '_blank';
       source.rel = 'noopener noreferrer';
-      source.textContent = `来源：${label}`;
-      source.title = `在新窗口查看来源：${label}`;
+      source.textContent = t('home.gameplay.sourceLabel', '来源：{label}', { label });
+      source.title = t('home.gameplay.sourceTitle', '在新窗口查看来源：{label}', { label });
       body.append(source);
     }
     return body;
@@ -258,10 +268,10 @@ function createGameplayProgressRenderer(document, window) {
     for (const item of milestones.slice(0, 12)) {
       if (!item || typeof item !== 'object' || Array.isArray(item) ||
           typeof item.id !== 'string' || item.id.length > 48 || !labelPattern.test(item.id) ||
-          !validText(item.label, 24) || !statuses.has(item.status) || seen.has(item.id)) continue;
+          !validText(item.label, 24, 64) || !statuses.has(item.status) || seen.has(item.id)) continue;
       seen.add(item.id);
 
-      const evidence = validText(item.evidence, 160) ? item.evidence.trim() : '';
+      const evidence = validText(item.evidence, 160, 400) ? item.evidence.trim() : '';
       const source = safeHttpsSource(item.sourceUrl);
       const claimedVerification = item.status === 'completed' || item.status === 'reported';
       const verifiedEvidence = Boolean(evidence && source);
@@ -269,8 +279,8 @@ function createGameplayProgressRenderer(document, window) {
       let verificationWarning = '';
       if (claimedVerification && !verifiedEvidence) {
         verificationWarning = item.status === 'completed'
-          ? '原“已核实”标记缺少有效证据或安全来源，已降级为待核实，不计入核实记录。'
-          : '原社区自述缺少有效证据或安全来源，已降级为待核实。';
+          ? t('home.gameplay.missingVerifiedEvidence', '原“已核实”标记缺少有效证据或安全来源，已降级为待核实，不计入核实记录。')
+          : t('home.gameplay.missingReportedEvidence', '原社区自述缺少有效证据或安全来源，已降级为待核实。');
       }
       const record = {
         id: item.id,
@@ -294,20 +304,22 @@ function createGameplayProgressRenderer(document, window) {
     const reported = records.filter(record => record.status === 'reported');
     const farthestVerified = verified[verified.length - 1];
     const farthestReported = reported[reported.length - 1];
-    setText(answer, farthestVerified ? farthestVerified.label : '尚无核实记录');
+    setText(answer, farthestVerified ? farthestVerified.label : t('home.gameplay.noneVerified', '尚无核实记录'));
     if (!records.length) {
-      setText(count, '暂无游戏内进度记录');
+      setText(count, t('home.gameplay.noRecords', '暂无游戏内进度记录'));
       return;
     }
-    setText(count, `已核实 ${verified.length} / ${records.length}` +
-      (farthestReported ? ` · 最远自述：${farthestReported.label}` : ''));
+    const totals = { verified: verified.length, total: records.length };
+    setText(count, farthestReported
+      ? t('home.gameplay.countWithReported', '已核实 {verified} / {total} · 最远自述：{label}', { ...totals, label: farthestReported.label })
+      : t('home.gameplay.count', '已核实 {verified} / {total}', totals));
   }
 
   function render(progress) {
     records = parse(progress);
 
-    const gameplayTitle = validText(progress?.title, 24) ? progress.title.trim() : '';
-    const gameplayNote = validText(progress?.note, 240) ? progress.note.trim() : '';
+    const gameplayTitle = validText(progress?.title, 24, 64) ? progress.title.trim() : '';
+    const gameplayNote = validText(progress?.note, 240, 600) ? progress.note.trim() : '';
     setText(title, gameplayTitle || defaultTitle);
     setText(note, gameplayNote);
     if (note) note.hidden = !gameplayNote;
@@ -358,18 +370,18 @@ function createGameplayProgressRenderer(document, window) {
 
     applySelection(false);
     if (records.length) setText(empty, '');
-    else setText(empty, '暂无可显示的游戏内里程碑数据。');
+    else setText(empty, t('home.gameplay.empty', '暂无可显示的游戏内里程碑数据。'));
     syncVisibility();
     hasRendered = true;
     announceMilestones();
   }
 
   render.setError = function setError() {
-    setText(answer, '暂时无法读取');
-    setText(count, '暂不可用');
+    setText(answer, t('home.gameplay.failed', '暂时无法读取'));
+    setText(count, t('home.gameplay.unavailable', '暂不可用'));
     setText(note, '');
     if (note) note.hidden = true;
-    setText(empty, '暂时无法读取游戏内进度；请稍后重试。');
+    setText(empty, t('home.gameplay.failedNote', '暂时无法读取游戏内进度；请稍后重试。'));
     if (empty) empty.hidden = false;
     syncVisibility();
   };
@@ -381,9 +393,17 @@ if (typeof module === 'object' && module.exports) {
   module.exports = createGameplayProgressRenderer;
 } else (() => {
   'use strict';
+  const t = homeTranslator(window);
+  const localizedUrl = url => window.SiteI18n?.url?.(url) ?? url;
+  const locale = window.SiteI18n?.locale || 'zh-CN';
   const $ = id => document.getElementById(id);
   const pad = n => String(n).padStart(2, '0');
-  const formatChina = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai', dateStyle: 'short', timeStyle: 'short' });
+  const timeZone = 'Asia/Shanghai';
+  const localDate = { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' };
+  const formatChina = locale === 'zh-CN'
+    ? new Intl.DateTimeFormat('sv-SE', { timeZone, dateStyle: 'short', timeStyle: 'short' })
+    : new Intl.DateTimeFormat(locale, { ...localDate, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  const formatChinaDay = locale === 'zh-CN' ? null : new Intl.DateTimeFormat(locale, localDate);
   const svgNS = 'http://www.w3.org/2000/svg';
   const countdownPanel = document.querySelector('section.countdown-wrap');
   const countdownMenuLabel = document.querySelector('.menu-chapters a[href="#community-event"] strong');
@@ -430,7 +450,7 @@ if (typeof module === 'object' && module.exports) {
     try {
       const url = new URL(value);
       if (!url.username && !url.password && url.protocol === 'https:') {
-        el.href = value;
+        el.href = localizedUrl(value);
         if (url.protocol === 'https:') {
           el.target = '_blank';
           el.rel = 'noopener noreferrer';
@@ -456,7 +476,7 @@ if (typeof module === 'object' && module.exports) {
   function tick() {
     if (!Number.isFinite(target)) return;
     const left = Math.max(0, Math.ceil((target - Date.now()) / 1000));
-    const label = left ? countdownLabel : '社区所述时间已到 · 不代表已发布';
+    const label = left ? countdownLabel : t('home.countdown.ended', '社区所述时间已到 · 不代表已发布');
     if ($('cdLabel').textContent !== label) $('cdLabel').textContent = label;
     $('countdown').classList.toggle('ended', left === 0);
     writeDigits('cdDays', pad(Math.floor(left / 86400)));
@@ -488,7 +508,7 @@ if (typeof module === 'object' && module.exports) {
   function renderCountdown(cfg) {
     const enabled = cfg.enabled !== false;
     if (countdownMenuLabel) {
-      const label = enabled ? countdownMenuText : '移植进度';
+      const label = enabled ? countdownMenuText : t('home.countdown.portOnly', '移植进度');
       if (countdownMenuLabel.textContent !== label) countdownMenuLabel.textContent = label;
     }
     if (!enabled) {
@@ -505,7 +525,7 @@ if (typeof module === 'object' && module.exports) {
     countdownPanel.inert = countdownPanel.hidden = false;
     target = +date;
     countdownLabel = cfg.label;
-    $('cdTarget').textContent = `${formatChina.format(date)}（北京时间 / UTC+8）`;
+    $('cdTarget').textContent = t('home.countdown.beijingTime', '{date}（北京时间 / UTC+8）', { date: formatChina.format(date) });
     $('cdUtc').textContent = `${date.toISOString().slice(0, 16).replace('T', ' ')} UTC`;
     $('cdMeta').hidden = false;
     $('cdSource').textContent = cfg.source;
@@ -518,7 +538,7 @@ if (typeof module === 'object' && module.exports) {
   function renderCountdownActions(cfg) {
     const actions = $('cdActions');
     const focused = actions.contains(document.activeElement) ? document.activeElement.getAttribute('href') : null;
-    const buttons = Array.isArray(cfg.buttons) ? cfg.buttons.slice(0, 3) : [{ label: '活动来源', url: cfg.officialUrl }];
+    const buttons = Array.isArray(cfg.buttons) ? cfg.buttons.slice(0, 3) : [{ label: t('home.countdown.cyberleek', '活动来源'), url: cfg.officialUrl }];
     const links = [];
     for (const item of buttons) {
       if (typeof item?.label !== 'string' || !item.label.trim()) continue;
@@ -555,7 +575,7 @@ if (typeof module === 'object' && module.exports) {
     const links = items.map(([href, title, correction]) => {
       const anchor = node('a', 'poster-news-link');
       anchor.setAttribute('href', href);
-      anchor.title = correction ? `更正：${title}` : title;
+      anchor.title = correction ? t('home.timeline.correctedTitle', '更正：{title}', { title }) : title;
       if (correction) anchor.classList.add('is-correction');
       anchor.append(node('span', 'poster-news-link-title', anchor.title), icon('arrow-right'));
       return anchor;
@@ -569,12 +589,12 @@ if (typeof module === 'object' && module.exports) {
   }
 
   const playabilityLabels = new Map([
-    ['unplayable', '不能玩'],
-    ['unstable', '能进入游戏，运行不稳定'],
-    ['playable', '可以畅玩'],
+    ['unplayable', t('home.playability.unplayable', '不能玩')],
+    ['unstable', t('home.playability.unstable', '能进入游戏，运行不稳定')],
+    ['playable', t('home.playability.playable', '可以畅玩')],
   ]);
 
-  function showPlayability(playability, fallback = '可玩情况待核对。') {
+  function showPlayability(playability, fallback = t('home.playability.unknown', '可玩情况待核对。')) {
     const label = playabilityLabels.get(playability?.status);
     const summary = typeof playability?.summary === 'string' ? playability.summary.trim() : '';
     // The saved summary is the verdict. The status sets the indicator and supplies a fallback.
@@ -647,9 +667,11 @@ if (typeof module === 'object' && module.exports) {
   }
 
   function announcementDate(value) {
-    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+    const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(value);
+    if (dateOnly && !formatChinaDay) return value;
     const date = new Date(value);
-    return Number.isNaN(+date) ? '时间未记录' : formatChina.format(date);
+    if (Number.isNaN(+date)) return t('home.time.missing', '时间未记录');
+    return (dateOnly ? formatChinaDay : formatChina).format(date);
   }
 
   function showAnnouncements() {
@@ -657,7 +679,8 @@ if (typeof module === 'object' && module.exports) {
     const toggle = $('announcementsToggle');
     toggle.hidden = announcementRows.length <= 3;
     toggle.setAttribute('aria-expanded', String(announcementsExpanded));
-    $('announcementsToggleLabel').textContent = announcementsExpanded ? '收起公告' : `再看 ${Math.max(0, announcementRows.length - 3)} 条公告`;
+    $('announcementsToggleLabel').textContent = announcementsExpanded ? t('home.announcements.collapse', '收起公告') :
+      t('home.announcements.expand', '再看 {count} 条公告', { count: Math.max(0, announcementRows.length - 3) });
   }
 
   function announcementButton(button) {
@@ -670,7 +693,7 @@ if (typeof module === 'object' && module.exports) {
       const destination = new URL(url, location.origin);
       if (destination.username || destination.password || (internal && destination.origin !== location.origin)) return null;
       const anchor = node('a', 'announcement-button');
-      anchor.href = url;
+      anchor.href = localizedUrl(url);
       if (!internal && destination.origin !== location.origin) {
         anchor.target = '_blank';
         anchor.rel = 'noopener noreferrer';
@@ -701,7 +724,9 @@ if (typeof module === 'object' && module.exports) {
       return row;
     });
     $('announcementsList').replaceChildren(...announcementRows);
-    $('announcementNote').textContent = announcementRows.length ? '公告为发布者自述，未独立核实。时间为北京时间。' : '暂无已收录的公告。';
+    $('announcementNote').textContent = announcementRows.length
+      ? t('home.announcements.notice', '公告为发布者自述，未独立核实。时间为北京时间。')
+      : t('home.announcements.empty', '暂无已收录的公告。');
     showAnnouncements();
   }
 
@@ -714,10 +739,10 @@ if (typeof module === 'object' && module.exports) {
     const items = data.items.map((item, index) => {
       const key = `${index}:${item.title}`;
       const channels = Array.isArray(item.channels) ? item.channels : [{
-        label: '查看资源', url: item.url,
+        label: t('home.downloads.resource', '查看资源'), url: item.url,
       }];
       const channelList = node('ul', 'download-channel-list');
-      channelList.setAttribute('aria-label', '下载渠道');
+      channelList.setAttribute('aria-label', t('home.downloads.channels', '下载渠道'));
       for (const channel of channels) {
         if (typeof channel?.label !== 'string' || !channel.label.trim()) continue;
         const anchor = node('a', 'download-channel');
@@ -737,7 +762,7 @@ if (typeof module === 'object' && module.exports) {
       const copy = node('span', 'download-card-copy');
       copy.append(node('strong', '', item.title));
       if (item.description) copy.append(node('span', '', item.description));
-      copy.append(node('span', 'download-card-action', '选择下载渠道'));
+      copy.append(node('span', 'download-card-action', t('home.downloads.chooseChannel', '选择下载渠道')));
       trigger.append(mark, copy, icon('chevron-down', 'download-card-arrow'));
       entry.append(trigger, channelList);
       return entry;
@@ -749,7 +774,7 @@ if (typeof module === 'object' && module.exports) {
       const channel = activeHref && entry && [...entry.querySelectorAll('.download-channel')].find(anchor => anchor.getAttribute('href') === activeHref);
       (channel || entry?.querySelector('summary') || $('downloads')).focus({ preventScroll: true });
     }
-    $('downloadNote').textContent = items.length ? (data.note || '') : (data.note || '暂无示例资源。');
+    $('downloadNote').textContent = items.length ? (data.note || '') : (data.note || t('home.downloads.empty', '暂无示例资源。'));
     $('downloadNote').hidden = !$('downloadNote').textContent;
   }
 
@@ -758,6 +783,9 @@ if (typeof module === 'object' && module.exports) {
 
   // ---- Port progress renderer (homepage total-progress block) ----
   const portScoreApi = window.PortScore;
+  const pinBox = $('portProgressAvatars');
+  let latestPins;
+  let pinSignature;
 
   function setProgressValue(track, fill, score) {
     if (score === null) {
@@ -797,10 +825,19 @@ if (typeof module === 'object' && module.exports) {
       const after = result.find(item => item.key === 'fps30' || /30/.test(item.key));
       if (before && after && after.at > before.at) {
         result.push({ key: 'rendered', label: '完全渲染', at: before.at + (after.at - before.at) / 2 });
-        result.sort((a, b) => a.at - b.at);
       }
     }
-    return result.length ? result : [{ key: 'groundwork', label: '基础准备', at: 0 }];
+    return result.sort((a, b) => a.at - b.at)
+      .map(item => ({ ...item, label: builtinMilestoneLabel(item.key, item.label) }));
+  }
+
+  function builtinMilestoneLabel(key, label) {
+    // Older dashboards can still use these built-in names during a rolling update.
+    if (key === 'menu' && label === '主菜单') return t('home.port.stage.mainMenu', label);
+    if (key === 'stable' && label === '稳定游玩') return t('home.port.stage.stableGameplay', label);
+    const builtin = key === 'rendered' ? '完全渲染' : portScoreApi?.MILESTONES?.find(item => item.key === key)?.label;
+    // The built-in names can arrive from the score library or in the API payload.
+    return builtin && (label === builtin || label === key) ? t('home.port.stage.' + key, label) : label;
   }
 
   function milestoneByKey(milestones, key) {
@@ -814,8 +851,8 @@ if (typeof module === 'object' && module.exports) {
     if (!milestones.length) return keys;
     keys.add(milestones[0].key);
     keys.add(milestones[milestones.length - 1].key);
-    const ingame = milestoneByKey(milestones, 'ingame');
-    if (ingame) keys.add(ingame.key);
+    const middle = milestoneByKey(milestones, 'prison') || milestoneByKey(milestones, 'ingame');
+    if (middle) keys.add(middle.key);
     return keys;
   }
 
@@ -836,9 +873,10 @@ if (typeof module === 'object' && module.exports) {
 
     const projectName = score !== null && typeof progress?.leaderName === 'string' ? progress.leaderName.trim() : '';
     if (score !== null) {
-      const basis = projectName ? `总进度取自领先项目 ${projectName} 的移植评分` : '总进度取自领先项目的移植评分';
+      const basis = projectName ? t('home.port.basisNamed', '总进度取自领先项目 {project} 的移植评分', { project: projectName })
+        : t('home.port.basis', '总进度取自领先项目的移植评分');
       meter.title = basis;
-      meter.setAttribute('aria-valuetext', `${scoreText}，${basis}`);
+      meter.setAttribute('aria-valuetext', t('home.port.valueText', '{score}，{basis}', { score: scoreText, basis }));
     } else {
       meter.removeAttribute('title');
       meter.removeAttribute('aria-valuetext');
@@ -850,7 +888,6 @@ if (typeof module === 'object' && module.exports) {
   }
 
   function renderPortProgress(dashboardData) {
-    if (!portScoreApi) return;
     const progress = dashboardData?.progress;
     const ranked = Array.isArray(progress?.ranked) ? progress.ranked : [];
     const score = ranked.length && Number.isFinite(progress.score) && progress.score >= 0 && progress.score <= 100
@@ -869,32 +906,23 @@ if (typeof module === 'object' && module.exports) {
     const ppNum = $('portProgressNum');
     const track = $('portProgressTrack');
     const fill = $('portProgressFill');
-    const avatarBox = $('portProgressAvatars');
 
-    if (ppScore) {
-      ppScore.hidden = !hasData;
-      ppScore.removeAttribute('aria-live');
-      ppScore.removeAttribute('aria-atomic');
-      ppScore.setAttribute('aria-hidden', 'true');
+    if (ppScore) ppScore.hidden = !hasData;
+    const headings = [
+      [$('portProgressTitle'), 'home.port.title', '项目进度'],
+      [ppLeader?.querySelector('.port-progress-leader-label'), 'home.port.leader', '领先项目：'],
+      [$('ppStatBoots')?.previousElementSibling, 'home.port.bootCount', '达到启动阶段'],
+    ];
+    for (const [element, key, fallback] of headings) {
+      if (!element) continue;
+      const copy = t(element.dataset?.i18n || key, t(key, fallback));
+      if (element.textContent !== copy) element.textContent = copy;
     }
-    const ppTitle = $('portProgressTitle');
-    if (ppTitle && ppTitle.textContent !== '项目进度') ppTitle.textContent = '项目进度';
-    const ppLeaderLabel = ppLeader?.querySelector('.port-progress-leader-label');
-    if (ppLeaderLabel && ppLeaderLabel.textContent !== '领先项目：') ppLeaderLabel.textContent = '领先项目：';
-    const ppBootLabel = $('ppStatBoots')?.previousElementSibling;
-    if (ppBootLabel && ppBootLabel.textContent !== '已运行程序') ppBootLabel.textContent = '已运行程序';
     if (ppNum && hasData) {
       const scoreText = score.toFixed(1);
       if (ppNum.textContent !== scoreText) ppNum.textContent = scoreText;
     }
-    if (ppBarWrap) ppBarWrap.removeAttribute('aria-hidden');
-    if (avatarBox) avatarBox.removeAttribute('aria-hidden');
     if (track && fill) {
-      track.setAttribute('role', 'progressbar');
-      track.removeAttribute('aria-label');
-      track.setAttribute('aria-labelledby', 'portProgressTitle');
-      track.setAttribute('aria-valuemin', '0');
-      track.setAttribute('aria-valuemax', '100');
       fill.classList.add('progress-motion-fill');
       setProgressValue(track, fill, score);
     }
@@ -906,6 +934,8 @@ if (typeof module === 'object' && module.exports) {
     }
 
     if (!hasData) {
+      if (pinBox?.contains(document.activeElement)) ppSection?.focus({ preventScroll: true });
+      latestPins = undefined;
       if (ppEmpty) ppEmpty.hidden = false;
       if (ppBarWrap) ppBarWrap.hidden = true;
       if (ppStats) ppStats.hidden = true;
@@ -921,14 +951,18 @@ if (typeof module === 'object' && module.exports) {
       if (ppLeaderLink && ppLeaderLink.textContent !== progress.leaderName) ppLeaderLink.textContent = progress.leaderName;
       if (ppLeaderLink) ppLeaderLink.href = progressArchiveHref(dashboardData, progress.leaderId);
       const ms = $('portProgressLeaderMilestone');
-      if (ms) ms.textContent = progress.leaderReachedLabel || milestoneByKey(milestones, progress.leaderReached)?.label || '';
+      if (ms) ms.textContent = progress.leaderReachedLabel
+        ? builtinMilestoneLabel(progress.leaderReached, progress.leaderReachedLabel)
+        : milestoneByKey(milestones, progress.leaderReached)?.label || '';
     }
 
     // Stats
     if (ppStats) {
       const setDd = (id, val) => { const el = $(id); if (el) el.textContent = val; };
       const furthestMs = milestoneByKey(milestones, progress.furthestMilestone);
-      setDd('ppStatFurthest', furthestMs ? furthestMs.label : '—');
+      setDd('ppStatFurthest', progress.furthestMilestoneLabel
+        ? builtinMilestoneLabel(progress.furthestMilestone, progress.furthestMilestoneLabel)
+        : furthestMs?.label || '—');
       setDd('ppStatTop3', progress.top3avg != null ? progress.top3avg.toFixed(1) + '%' : '—');
       setDd('ppStatBoots', (progress.bootsCount || 0) + ' / ' + (progress.rankedCount || 0));
       setDd('ppStatTotal', dashboardData?.stats?.total || '—');
@@ -941,30 +975,31 @@ if (typeof module === 'object' && module.exports) {
       const ticks = $('portProgressTicks');
       const labels = $('portProgressLabels');
       if (ticks) {
-        ticks.replaceChildren(...milestones.slice(1).map(m => {
+        ticks.replaceChildren(...milestones.map(m => {
           const tick = node('i');
           tick.style.left = m.at + '%';
           return tick;
         }));
       }
       if (labels) {
+        labels.setAttribute('aria-label', t('home.scoreRules.legend', '移植进度刻度'));
         const furthest = milestoneByKey(milestones, progress.furthestMilestone || 'groundwork');
         const furthestIdx = furthest ? milestones.indexOf(furthest) : 0;
         const mobileKeys = mobileMilestoneKeys(milestones);
         labels.replaceChildren(...milestones.map((m, i) => {
-          const mark = node('div', (i <= furthestIdx ? 'ppl-item is-reached' : 'ppl-item') + (mobileKeys.has(m.key) ? ' is-mobile-key' : ''));
-          mark.style.left = m.at + '%';
+          const mark = node('li', (i <= furthestIdx ? 'ppl-item is-reached' : 'ppl-item') + (mobileKeys.has(m.key) ? ' is-mobile-key' : ''));
           mark.dataset.milestoneKey = m.key;
-          mark.append(node('b', 'ppl-percent', m.at + '%'), node('span', 'ppl-dot'), node('span', 'ppl-label', m.label));
+          mark.append(node('b', 'ppl-percent', m.at + '%'), node('span', 'ppl-label', m.label));
           return mark;
         }));
       }
 
-      if (avatarBox) {
+      if (pinBox) {
         const publicProjects = Array.isArray(dashboardData?.projects) ? dashboardData.projects : [];
         const privateProjects = Array.isArray(dashboardData?.privateRepositories) ? dashboardData.privateRepositories : [];
-        renderPortProgressAvatars(avatarBox, ranked, progress.leaderId, publicProjects,
-          dashboardData?.communityBuild ? [dashboardData.communityBuild, ...privateProjects] : privateProjects);
+        latestPins = [ranked, progress.leaderId, publicProjects,
+          dashboardData?.communityBuild ? [dashboardData.communityBuild, ...privateProjects] : privateProjects];
+        renderPortProgressAvatars(pinBox, ...latestPins);
       }
     }
 
@@ -990,25 +1025,30 @@ if (typeof module === 'object' && module.exports) {
   }
 
   function renderPortProgressAvatars(box, ranked, leaderId, publicProjects, privateProjects) {
-    const W = box.clientWidth || box.offsetWidth || 600;
+    const W = box.clientWidth;
     if (!W) return;
     const GAP = W < 420 ? 34 : 48;
+    const pinInset = 24;
     const top6 = ranked.slice(0, 6);
     const allProjects = [...publicProjects, ...privateProjects];
     const projectMap = new Map(allProjects.map(p => [p.id, p]));
-    const items = top6.map(r => ({
+    const items = top6.filter(r => Number.isFinite(r.score) && r.score >= 0 && r.score <= 100).map(r => ({
       r,
       project: projectMap.get(r.id),
       x: (r.score / 100) * W,
     })).filter(it => it.project && (typeof it.project.repo === 'string' && it.project.repo.trim() || it.project.id === 'community-build' || /^private-repo-[a-z0-9-]+$/i.test(String(it.project.id || '')))).sort((a, b) => a.x - b.x);
+    const signature = JSON.stringify([W, leaderId, items.map(({ r, project: p }) => [r.id, r.score, p.id, p.repo, p.title, p.logo])]);
+    if (pinSignature === signature) return;
+    pinSignature = signature;
+    const focusedPin = box.contains(document.activeElement) ? document.activeElement.dataset.pinTarget : undefined;
     // Spread avatars to avoid overlap
     items.forEach((it, i) => { it.a = i ? Math.max(it.x, items[i - 1].a + GAP) : it.x; });
     const shift = items.length ? items.reduce((s, it) => s + (it.x - it.a), 0) / items.length : 0;
     items.forEach((it, i) => {
       it.a += shift;
-      it.a = Math.max(18, i ? Math.max(it.a, items[i - 1].a + GAP) : it.a);
+      it.a = Math.max(pinInset, i ? Math.max(it.a, items[i - 1].a + GAP) : it.a);
     });
-    const overflow = items.length ? items[items.length - 1].a - (W - 18) : 0;
+    const overflow = items.length ? items[items.length - 1].a - (W - pinInset) : 0;
     if (overflow > 0) items.forEach(it => { it.a -= overflow; });
 
     const H = 80;
@@ -1033,9 +1073,9 @@ if (typeof module === 'object' && module.exports) {
       dot.setAttribute('fill', isLead ? '#f4a1c0' : 'rgba(255,222,215,.35)');
       svg.append(dot);
     }
-    box.innerHTML = '';
-    box.style.cssText = `position:relative;height:${H}px`;
-    box.append(svg);
+    box.style.blockSize = items.length ? `${H}px` : '0';
+    box.replaceChildren(...(items.length ? [svg] : []));
+    let nextFocus;
     for (const it of items) {
       const isLead = it.r.id === leaderId;
       const p = it.project;
@@ -1044,7 +1084,8 @@ if (typeof module === 'object' && module.exports) {
       avatar.type = 'button';
       avatar.className = 'pp-pin' + (isLead ? ' is-leader' : '');
       avatar.dataset.pinTarget = p.id === 'community-build' ? 'community-build' : (p.id && /^private-repo-/.test(p.id) ? p.id : p.repo);
-      avatar.setAttribute('aria-label', `${name}，移植进度 ${it.r.score.toFixed(1)}%，跳转到工程档案`);
+      if (avatar.dataset.pinTarget === focusedPin) nextFocus = avatar;
+      avatar.setAttribute('aria-label', t('home.port.pinLabel', '{name}，移植进度 {score}%，跳转到工程档案', { name, score: it.r.score.toFixed(1) }));
       avatar.style.cssText = `position:absolute;left:${it.a}px;bottom:${H - avatarY - 32}px;transform:translateX(-50%)`;
       avatar.addEventListener('click', () => {
         const handled = p.id === 'community-build'
@@ -1062,6 +1103,10 @@ if (typeof module === 'object' && module.exports) {
       art.setAttribute('aria-hidden', 'true');
       avatar.append(art);
       if (isLead) {
+        const labelWidth = Math.min(W, 220);
+        const labelCenter = Math.max(labelWidth / 2, Math.min(it.a, W - labelWidth / 2));
+        avatar.style.setProperty('--pp-pin-label-width', `${labelWidth}px`);
+        avatar.style.setProperty('--pp-pin-label-offset', `${labelCenter - it.a}px`);
         const lbl = document.createElement('span');
         lbl.className = 'pp-avatar-label';
         lbl.textContent = name + ' · ' + it.r.score.toFixed(1) + '%';
@@ -1074,6 +1119,7 @@ if (typeof module === 'object' && module.exports) {
       art.append(initial);
       box.append(avatar);
     }
+    if (focusedPin) (nextFocus || $('gameplay-progress'))?.focus({ preventScroll: true });
   }
 
   function projectAnchorId(repo) {
@@ -1093,20 +1139,25 @@ if (typeof module === 'object' && module.exports) {
 
   // expose renderPortProgress for app.js to call after dashboard fetch
   window.renderPortProgress = renderPortProgress;
+  if (pinBox && typeof window.ResizeObserver === 'function') {
+    new window.ResizeObserver(() => {
+      if (latestPins) renderPortProgressAvatars(pinBox, ...latestPins);
+    }).observe(pinBox);
+  }
 
   async function refresh() {
     if (busy || document.hidden) return;
     clearTimeout(timer);
     busy = true;
     try {
-      const response = await fetch('/api/content', { cache: 'no-cache', signal: AbortSignal.timeout(9000) });
+      const response = await fetch(window.SiteI18n?.withLocale?.('/api/content') ?? '/api/content', { cache: 'no-cache', signal: AbortSignal.timeout(9000) });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const { content, updatedAt } = await response.json();
       const updateDate = new Date(updatedAt);
       const stamp = $('siteUpdatedAt');
       if (!Number.isNaN(+updateDate) && stamp.dateTime !== updatedAt) {
         stamp.dateTime = updatedAt;
-        stamp.textContent = formatChina.format(updateDate) + '（北京时间）';
+        stamp.textContent = t('home.time.siteUpdated', '{date}（北京时间）', { date: formatChina.format(updateDate) });
       }
       for (const [key, render] of Object.entries(renderers)) {
         const section = key === 'roadmap' ? {
@@ -1119,14 +1170,16 @@ if (typeof module === 'object' && module.exports) {
       }
     } catch {
       const errors = {
-        home: ['homeLatestUpdate', '暂时无法读取。'], countdown: ['cdLabel', '暂时无法读取倒计时。'],
-        announcements: ['announcementNote', '暂时无法读取公告。'], downloads: ['downloadNote', '暂时无法读取下载分区。'],
+        home: ['homeLatestUpdate', t('home.loadFailed', '暂时无法读取。')],
+        countdown: ['cdLabel', t('home.countdown.failed', '暂时无法读取倒计时。')],
+        announcements: ['announcementNote', t('home.announcements.failed', '暂时无法读取公告。')],
+        downloads: ['downloadNote', t('home.downloads.failed', '暂时无法读取下载分区。')],
       };
       for (const [key, [id, message]] of Object.entries(errors)) {
         const node = $(id);
         if (node && !rendered.has(key)) node.textContent = message;
       }
-      if (!rendered.has('roadmap')) showPlayability(undefined, '暂时无法读取可玩情况。');
+      if (!rendered.has('roadmap')) showPlayability(undefined, t('home.playability.failed', '暂时无法读取可玩情况。'));
     } finally {
       busy = false;
       resolveInitialLayout?.();

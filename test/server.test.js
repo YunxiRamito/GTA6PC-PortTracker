@@ -64,7 +64,7 @@ function sessionCookie(response) {
 function checkDemoPrivateRepositories(archive) {
   assert.deepEqual(archive.privateRepositories.map(project => project.id), ['private-repo-sample-launch', 'private-repo-sample-render']);
   for (const project of archive.privateRepositories) {
-    assert.deepEqual(Object.keys(project).sort(), ['id', 'portProgress', 'sourceLabel', 'sourceUrl', 'summary', 'title']);
+    assert.deepEqual(Object.keys(project).sort(), ['id', 'portProgress', 'sourceLabel', 'sourceUrl', 'summary', 'title', 'translations']);
     assert.equal(project.sourceUrl, '#about');
   }
   assert.equal(archive.progress.leaderId, 'private-repo-sample-launch');
@@ -154,6 +154,29 @@ test('functional backend stores edits, enforces roles, and serves community rout
   assert.equal(member.role, 'user');
   assert.equal((await send(origin, '/api/admin/content/home', { cookie: memberCookie })).status, 403);
 
+
+  const rankGrants = await send(origin, '/api/admin/danmaku/rank-tags?q=local-member-example', { cookie });
+  const rankSearch = await json(rankGrants, 200);
+  assert.equal(rankSearch.accounts[0].id, member.id);
+  assert.deepEqual((await json(await send(origin, '/api/admin/danmaku/rank-tags', { cookie: memberCookie }), 403)).error, '当前账号没有这项权限');
+  await json(await send(origin, '/api/admin/danmaku/rank-tags', {
+    method: 'PUT', cookie, data: { accountId: member.id, tag: 'moderator', enabled: true },
+  }), 200);
+  const memberDanmakuSession = await json(await send(origin, '/api/admin/danmaku/session', { cookie: memberCookie }), 200);
+  assert.ok(memberDanmakuSession.rankTags.includes('moderator'));
+  const memberSendNonce = await json(await send(origin, '/api/admin/danmaku/nonce?action=send', { cookie: memberCookie }), 200);
+  const taggedMessage = await json(await send(origin, '/api/admin/danmaku/messages', {
+    method: 'POST', cookie: memberCookie, data: { nonce: memberSendNonce.nonce, text: 'Granted badge sample', rankTag: 'moderator' },
+  }), 201);
+  assert.equal(taggedMessage.rankTag, 'moderator');
+  const rankedRecent = await json(await send(origin, '/api/danmaku/recent'), 200);
+  assert.equal(rankedRecent.messages.find(item => item.text === 'Granted badge sample')?.rankTag, 'moderator');
+  const rejectedTagNonce = await json(await send(origin, '/api/admin/danmaku/nonce?action=send', { cookie: memberCookie }), 200);
+  const rejectedTag = await send(origin, '/api/admin/danmaku/messages', {
+    method: 'POST', cookie: memberCookie, data: { nonce: rejectedTagNonce.nonce, text: 'Unassigned badge sample', rankTag: 'owner' },
+  });
+  const rejectedTagPayload = await json(rejectedTag, 403);
+  assert.equal(rejectedTagPayload.code, 'rank_tag_forbidden');
   const feedbackHeaders = { 'X-Feedback-Client': randomBytes(32).toString('hex') };
   const { feedback } = await json(await send(origin, '/api/feedback', { method: 'POST', headers: feedbackHeaders, data: { text: '本地反馈测试' } }), 201);
   const feedbackList = await json(await send(origin, '/api/admin/feedback', { cookie }), 200);
@@ -188,6 +211,104 @@ test('screenshot preview responds from fixtures and rejects writes', async t => 
   checkDemoPrivateRepositories(await json(await send(origin, '/api/dashboard'), 200));
   assert.equal((await send(origin, '/api/feedback', { method: 'POST', data: { text: 'sample' } })).status, 405);
   assert.equal((await send(origin, '/about/')).status, 200);
+});
+
+test('both entry points localize records and feeds without changing IDs, URLs, or scores', async t => {
+  for (const mode of ['site', 'preview']) {
+    await t.test(mode, async t => {
+      const { directory, cleanup } = mode === 'site' ? await runtime() : {};
+      const fixed = Date.parse('2026-02-01T00:00:00Z');
+      const origin = await listener(t, mode === 'site'
+        ? createSiteServer({ runtimeDir: directory, now: () => fixed, liveGitHub: false })
+        : createDemoServer({ now: fixed }));
+      if (cleanup) t.after(cleanup);
+
+      const base = await send(origin, '/api/content');
+      const baseTag = base.headers.get('etag');
+      const chinese = (await json(base, 200)).content;
+      const archive = await json(await send(origin, '/api/dashboard'), 200);
+      const feed = await (await send(origin, '/rss.xml')).text();
+      const itemIds = xml => [...xml.matchAll(/<guid isPermaLink="false">(.*?)<\/guid>/g)].map(([, guid]) => guid);
+      const recordIds = rows => rows.map(row => [row.id, row.sourceUrl, row.url, row.repo, row.date]);
+      const tags = new Set([baseTag]);
+      for (const locale of ['en', 'ja']) {
+        const query = '?lang=' + locale;
+        const content = await send(origin, '/api/content' + query, { headers: { 'If-None-Match': baseTag } });
+        assert.equal(content.headers.get('content-language'), locale);
+        const tag = content.headers.get('etag');
+        assert.ok(tag && !tags.has(tag));
+        tags.add(tag);
+        const localized = (await json(content, 200)).content;
+        assert.equal(localized.home.latestUpdate, chinese.home.translations[locale].latestUpdate);
+        assert.equal(localized.home.latestNews[0].title, chinese.home.latestNews[0].translations[locale].title);
+        assert.equal(localized.announcements.items[0].buttons[0].url, '#dashboard');
+        assert.equal(localized.countdown.target, chinese.countdown.target);
+        assert.deepEqual(recordIds(localized.roadmap.gameplayProgress.milestones), recordIds(chinese.roadmap.gameplayProgress.milestones));
+        assert.doesNotMatch(JSON.stringify(localized), /"translations"/);
+        const cached = await send(origin, '/api/content' + query, { headers: { 'If-None-Match': tag } });
+        assert.equal(cached.status, 304);
+        assert.equal(cached.headers.get('content-language'), locale);
+
+        const localizedArchive = await send(origin, '/api/dashboard' + query);
+        assert.equal(localizedArchive.headers.get('content-language'), locale);
+        const data = await json(localizedArchive, 200);
+        assert.equal(data.progress.score, archive.progress.score);
+        assert.equal(data.progress.leaderId, archive.progress.leaderId);
+        assert.deepEqual(data.progress.ranked, archive.progress.ranked);
+        assert.deepEqual(data.stats, archive.stats);
+        assert.deepEqual(recordIds(data.projects), recordIds(archive.projects));
+        assert.deepEqual(recordIds(data.privateRepositories), recordIds(archive.privateRepositories));
+        assert.deepEqual(recordIds(data.timeline), recordIds(archive.timeline));
+        assert.equal(data.progress.leaderName, data.privateRepositories[0].title);
+        assert.notEqual(data.progress.leaderName, archive.progress.leaderName);
+        assert.equal(data.projects[0].summary, archive.projects[0].translations[locale].summary);
+
+        const translatedFeed = await send(origin, '/rss.xml' + query);
+        assert.equal(translatedFeed.status, 200);
+        assert.equal(translatedFeed.headers.get('content-language'), locale);
+        const xml = await translatedFeed.text();
+        assert.ok(xml.includes('<language>' + locale + '</language>'));
+        assert.ok(xml.includes('/rss.xml' + query + '" rel="self"'));
+        assert.ok(xml.includes(query + '#timeline'));
+        assert.ok(xml.includes(data.timeline[0].title));
+        assert.deepEqual(itemIds(xml), itemIds(feed));
+      }
+      const fallback = await send(origin, '/api/content?lang=fr');
+      assert.equal(fallback.headers.get('content-language'), 'zh-CN');
+      assert.equal(fallback.headers.get('etag'), baseTag);
+      if (mode === 'preview') {
+        const redirect = await send(origin, '/thanks?lang=ja');
+        assert.equal(redirect.headers.get('location'), '/thanks/?lang=ja');
+        const sponsorData = await json(await send(origin, '/api/sponsors?lang=ja'), 200);
+        assert.deepEqual(sponsorData.sponsors.map(sponsor => sponsor.id), ['demo-type', 'demo-motion', 'demo-fixture']);
+        assert.match(sponsorData.sponsors[0].nickname, /サンプル/);
+        const feedback = await (await send(origin, '/feedback/?lang=ja')).text();
+        assert.match(feedback, /data-i18n="pages.feedback.previewNote"/);
+        assert.doesNotMatch(feedback, /<form\b|danmaku-translate\.js/);
+      }
+    });
+  }
+});
+
+test('optional translations validate fields and fall back to original copy', () => {
+  const { localizePublicContent } = require('../api/_content-locale');
+  const { projectPublicContent } = require('../api/_content');
+  const { content } = createFixtures(Date.parse('2026-02-01T00:00:00Z'));
+  assert.deepEqual(validateContent(content), []);
+  const [news] = content.news;
+  const { translations: omitted, ...original } = news;
+  const legacy = { ...content, news: [original, ...content.news.slice(1)] };
+  assert.deepEqual(validateContent(legacy), []);
+  assert.equal(localizePublicContent(projectPublicContent(legacy), 'en').home.latestNews[0].title, news.title);
+  for (const [translations, field] of [
+    [{ fr: { title: 'Sample' } }, 'translations.fr'],
+    [{ en: { id: 'different' } }, 'translations.en.id'],
+    [{ ja: { title: String.fromCodePoint(0x202e) } }, 'translations.ja.title'],
+    [{ en: { title: 'x'.repeat(401) } }, 'translations.en.title'],
+  ]) {
+    const next = { ...content, news: [{ ...news, translations }, ...content.news.slice(1)] };
+    assert.ok(validateContent(next).some(error => error.includes(field)), field);
+  }
 });
 
 test('private repository validation accepts legacy roadmaps and enforces the record contract', () => {

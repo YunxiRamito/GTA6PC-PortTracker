@@ -3,8 +3,9 @@
 const PUBLIC_ASSETS = new Set([
   '/app.js', '/styles.css', '/thanks.css', '/thanks.js',
   '/assets/about.css', '/assets/chapters.css', '/assets/dashboard.css',
-  '/assets/danmaku-mount.js', '/assets/danmaku.css', '/assets/danmaku.js',
+  '/assets/danmaku-mount.js', '/assets/danmaku-translate.js', '/assets/danmaku.css', '/assets/danmaku.js',
   '/assets/demo.css', '/assets/demo.js', '/assets/feedback.css', '/assets/feedback.js',
+  '/assets/i18n.css', '/assets/i18n.js', '/assets/i18n-pages.js', '/assets/i18n-home.js', '/assets/i18n-widgets.js',
   '/assets/hero-opening.css', '/assets/motion.js', '/assets/navigation.js', '/assets/port-score.js',
   '/assets/progress-motion.css', '/assets/project-progress.js', '/assets/site-content.js',
   '/assets/site-topbar.css', '/assets/site-widgets.css', '/assets/traffic-history.js', '/assets/traffic.js',

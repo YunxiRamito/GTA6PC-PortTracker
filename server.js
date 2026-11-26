@@ -20,6 +20,7 @@ const { createSponsors, UUID: SPONSOR_UUID } = require('./api/_sponsors');
 const { createDanmakuNonces } = require('./api/_danmaku-nonces');
 const { createFeedback } = require('./api/_feedback');
 const { createContentStore, projectPublicContent, ContentError } = require('./api/_content');
+const { DEFAULT_LOCALE, resolveLocale, localizePublicContent, localizeDashboard } = require('./api/_content-locale');
 const { RSS_PATH, buildNewsFeed } = require('./api/_rss');
 const { createFixtures } = require('./fixtures/demo');
 const { PUBLIC_ASSETS, PUBLIC_PAGES, PAGE_SECURITY_HEADERS } = require('./site-assets');
@@ -276,15 +277,18 @@ function contentReply(res, result, headers) {
   return sendJson(res, 200, { content: result.content, updatedAt: result.updatedAt }, { ...headers, ETag: result.etag });
 }
 
-function serveNewsFeed(req, res, timeline, publicOrigin) {
-  // Configured HTTPS origin in production; use the actual listener for a local preview.
+function matchesIfNoneMatch(req, etag) {
+  const previous = (req.headers['if-none-match'] || '').split(',').map(value => value.trim().replace(/^W\//, ''));
+  return previous.includes(etag) || previous.includes('*');
+}
+
+function serveNewsFeed(req, res, timeline, locale) {
   const address = req.socket.localAddress;
   const host = address.includes(':') ? `[${address}]` : address;
-  const body = buildNewsFeed(timeline.slice(0, RSS_TIMELINE_LIMIT), publicOrigin || `http://${host}:${req.socket.localPort}`);
+  const body = buildNewsFeed(timeline.slice(0, RSS_TIMELINE_LIMIT), `http://${host}:${req.socket.localPort}`, locale);
   const etag = '"' + crypto.createHash('sha256').update(body).digest('hex') + '"';
-  const headers = { 'Cache-Control': 'public, max-age=120', ETag: etag };
-  const previous = (req.headers['if-none-match'] || '').split(',').map(value => value.trim().replace(/^W\//, ''));
-  if (previous.includes(etag) || previous.includes('*')) {
+  const headers = { 'Cache-Control': 'public, max-age=120', 'Content-Language': locale, ETag: etag };
+  if (matchesIfNoneMatch(req, etag)) {
     res.writeHead(304, headers);
     return res.end();
   }
@@ -863,7 +867,6 @@ function createPublicServer({ getContent, getSponsors, getSponsorAvatar, getDash
   const history = createTrafficHistory({ filePath: trafficHistoryPath, getSnapshot: traffic.readSnapshot, now });
   const getTrafficHistory = history.read;
   const events = createTrafficEvents({ traffic });
-  const publicOrigin = undefined;
   async function dispatch(req, res) {
     const host = req.headers.host;
     const localPort = req.socket.localPort;
@@ -877,6 +880,7 @@ function createPublicServer({ getContent, getSponsors, getSponsorAvatar, getDash
     const origin = 'http://' + host;
     const url = new URL(req.url, origin);
     const pathname = url.pathname;
+    const locale = resolveLocale(url.searchParams.get('lang'));
     const api = pathname.startsWith('/api/');
     if (api && ((req.headers.origin && req.headers.origin !== origin) ||
         (req.headers['sec-fetch-site'] && !['same-origin', 'none'].includes(req.headers['sec-fetch-site'])))) {
@@ -930,7 +934,7 @@ function createPublicServer({ getContent, getSponsors, getSponsorAvatar, getDash
       if (req.method !== 'GET' && req.method !== 'HEAD') return sendJson(res, 405, { error: '只支持 GET 或 HEAD' }, { Allow: 'GET, HEAD', Connection: 'close' });
       try {
         const { timeline } = getDashboard(false);
-        return serveNewsFeed(req, res, timeline, publicOrigin);
+        return serveNewsFeed(req, res, timeline, locale);
       } catch (err) {
         console.error('RSS request failed:', err.code || err.name);
         return sendJson(res, 503, { error: '新闻订阅暂时不可用' });
@@ -940,20 +944,22 @@ function createPublicServer({ getContent, getSponsors, getSponsorAvatar, getDash
       if (req.method !== 'GET') return sendJson(res, 405, { error: '只支持 GET' }, { Allow: 'GET', Connection: 'close' });
       const data = getContent();
       if (!data) return sendJson(res, 503, { error: '内容正在同步' });
-      const etag = data.revision;
-      const headers = { ETag: etag, 'Cache-Control': 'no-cache', Vary: 'Accept-Encoding' };
-      if (req.headers['if-none-match'] === etag) {
+      const payload = { ...data, content: localizePublicContent(data.content, locale) };
+      const etag = locale === DEFAULT_LOCALE ? data.revision
+        : '"' + crypto.createHash('sha256').update(JSON.stringify([locale, payload])).digest('hex') + '"';
+      const headers = { ETag: etag, 'Cache-Control': 'no-cache', 'Content-Language': locale, Vary: 'Accept-Encoding' };
+      if (matchesIfNoneMatch(req, etag)) {
         res.writeHead(304, headers);
         return res.end();
       }
-      return sendJson(res, 200, data, headers, req);
+      return sendJson(res, 200, payload, headers, req);
     }
     if (pathname === '/api/dashboard') {
       if (req.method !== 'GET') return sendJson(res, 405, { error: '只支持 GET' }, { Allow: 'GET', Connection: 'close' });
       try {
         const payload = getDashboard(url.searchParams.get('force') === '1');
         if (!payload) return sendJson(res, 503, { error: '工程档案正在同步' });
-        return sendJson(res, 200, payload, { 'Cache-Control': 'no-cache' }, req);
+        return sendJson(res, 200, localizeDashboard(payload, locale), { 'Cache-Control': 'no-cache', 'Content-Language': locale }, req);
       } catch (err) {
         console.error('Dashboard request failed:', err.code || err.name);
         return sendJson(res, 503, { error: '工程档案暂时不可用' });

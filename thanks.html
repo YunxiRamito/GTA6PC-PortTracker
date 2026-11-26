@@ -4,12 +4,16 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="theme-color" content="#0b0d1b" />
-<meta name="description" content="感谢支持 Port Tracker 的社区赞助者。" />
-<title>鸣谢 · Port Tracker</title>
+<meta name="description" data-i18n-content="pages.thanks.description" content="感谢支持 Port Tracker 的社区赞助者。" />
+<title data-i18n="pages.thanks.title">鸣谢 · Port Tracker</title>
 <link rel="preload" href="/assets/ui/barlow-condensed-900-latin.woff2" as="font" type="font/woff2" crossorigin />
 <link rel="stylesheet" href="/styles.css" />
 <link rel="stylesheet" href="/thanks.css" />
 <link rel="stylesheet" href="/assets/site-topbar.css" />
+<link rel="stylesheet" href="/assets/i18n.css" />
+<script defer src="/assets/i18n.js"></script>
+<script defer src="/assets/i18n-pages.js"></script>
+<script defer src="/assets/i18n-widgets.js"></script>
 <script defer src="/assets/navigation.js"></script>
 <script defer src="/thanks.js"></script>
 <link rel="stylesheet" href="/assets/demo.css" />
@@ -19,30 +23,31 @@
 <script defer src="/assets/feedback.js"></script>
 <script defer src="/assets/danmaku-mount.js"></script>
 <script defer src="/assets/danmaku.js"></script>
+<script defer src="/assets/danmaku-translate.js"></script>
 </head>
 <body class="thanks-page-body">
-<a class="skip-link" href="#thanksMain">跳到主要内容</a>
+<a class="skip-link" href="#thanksMain" data-i18n="pages.shared.skip">跳到主要内容</a>
 <header class="site-topbar" data-site-topbar="overlay">
-  <aside class="feedback-site-notice" id="siteNoticeStrip" aria-label="网站通知" aria-live="polite" aria-atomic="true" hidden>
-    <div class="feedback-site-notice-inner"><p id="siteNoticeText"></p><button class="feedback-site-notice-close" id="siteNoticeClose" type="button" aria-label="关闭网站通知"><svg class="ui-icon" aria-hidden="true"><use href="/assets/ui/fluent.svg#dismiss" /></svg></button></div>
+  <aside class="feedback-site-notice" id="siteNoticeStrip" data-i18n-aria-label="pages.shared.siteNotice" aria-label="网站通知" aria-live="polite" aria-atomic="true" hidden>
+    <div class="feedback-site-notice-inner"><p id="siteNoticeText"></p><button class="feedback-site-notice-close" id="siteNoticeClose" type="button" data-i18n-aria-label="pages.shared.dismissNotice" aria-label="关闭网站通知"><svg class="ui-icon" aria-hidden="true"><use href="/assets/ui/fluent.svg#dismiss" /></svg></button></div>
   </aside>
   <div class="site-nav">
-    <a class="site-brand" href="/" aria-label="Port Tracker 主页">
+    <a class="site-brand" href="/" data-i18n-aria-label="pages.shared.brandHome" aria-label="Port Tracker 主页">
       <span class="brand-mark demo-brand-mark" aria-hidden="true">VI</span>
       <span class="brand-word"><span>PORT</span><b>TRACKER</b></span>
     </a>
-    <nav class="site-primary-nav" aria-label="网站主导航">
-      <a href="/">主页</a>
-      <a href="/thanks/" aria-current="page">鸣谢</a>
-      <a href="/about/">关于</a>
+    <nav class="site-primary-nav" data-i18n-aria-label="pages.shared.primaryNav" aria-label="网站主导航">
+      <a href="/" data-i18n="pages.shared.home">主页</a>
+      <a href="/thanks/" data-i18n="pages.shared.thanks" aria-current="page">鸣谢</a>
+      <a href="/about/" data-i18n="pages.shared.about">关于</a>
     </nav>
     <div class="nav-actions">
       <a class="nav-action site-account" id="siteAccount" rel="noopener noreferrer" hidden>
-        <svg class="ui-icon site-account-icon" aria-hidden="true"><use /></svg>
-        <span id="siteAccountLabel">登录</span>
+        <svg class="ui-icon site-account-icon" aria-hidden="true"><use href="/assets/ui/fluent.svg#person" /></svg>
+        <span id="siteAccountLabel" data-i18n="pages.shared.login">登录</span>
         <img class="site-account-avatar" id="siteAccountAvatar" width="36" height="36" crossorigin="use-credentials" alt="" hidden />
       </a>
-      <button class="menu-toggle" id="menuToggle" type="button" aria-label="打开网站菜单" aria-haspopup="dialog" aria-controls="siteMenu" aria-expanded="false">
+      <button class="menu-toggle" id="menuToggle" type="button" data-i18n-aria-label="pages.shared.openMenu" aria-label="打开网站菜单" aria-haspopup="dialog" aria-controls="siteMenu" aria-expanded="false">
         <span class="menu-glyph" aria-hidden="true"><span></span><span></span></span>
       </button>
     </div>
@@ -52,15 +57,15 @@
   <div class="menu-backdrop-brand" aria-hidden="true"><span class="brand-mark demo-brand-mark" aria-hidden="true">VI</span></div>
   <div class="menu-panel" data-lenis-prevent>
     <div class="menu-head">
-      <div><p class="micro">GTA VI COMMUNITY</p><h2 id="menuTitle">PORT TRACKER</h2></div>
-      <button class="menu-close menu-toggle" id="menuClose" type="button" aria-label="关闭网站菜单" autofocus><svg class="ui-icon" aria-hidden="true"><use href="/assets/ui/fluent.svg#dismiss" /></svg></button>
+      <div><p class="micro" data-i18n="pages.shared.community">GTA VI COMMUNITY</p><h2 id="menuTitle">PORT TRACKER</h2></div>
+      <button class="menu-close menu-toggle" id="menuClose" type="button" data-i18n-aria-label="pages.shared.closeMenu" aria-label="关闭网站菜单" autofocus><svg class="ui-icon" aria-hidden="true"><use href="/assets/ui/fluent.svg#dismiss" /></svg></button>
     </div>
-    <nav class="menu-primary" aria-label="网站菜单链接">
-      <a href="/">主页</a>
-      <a href="/thanks/" aria-current="page">鸣谢</a>
-      <a href="/about/">关于</a>
+    <nav class="menu-primary" data-i18n-aria-label="pages.shared.menuLinks" aria-label="网站菜单链接">
+      <a href="/" data-i18n="pages.shared.home">主页</a>
+      <a href="/thanks/" data-i18n="pages.shared.thanks" aria-current="page">鸣谢</a>
+      <a href="/about/" data-i18n="pages.shared.about">关于</a>
     </nav>
-    <div class="menu-footer"><a class="text-link" href="/feedback/">反馈说明 <svg class="ui-icon" aria-hidden="true"><use href="/assets/ui/fluent.svg#arrow-up-right" /></svg></a></div>
+    <div class="menu-footer"><a class="text-link" href="/feedback/" data-i18n-own="pages.shared.feedback">反馈说明 <svg class="ui-icon" aria-hidden="true"><use href="/assets/ui/fluent.svg#arrow-up-right" /></svg></a></div>
   </div>
 </dialog>
 
@@ -70,25 +75,25 @@
     </div>
     <div class="thanks-sky" id="thanksSky" aria-hidden="true"></div>
     <div class="thanks-hero-copy content-width">
-      <p class="thanks-eyebrow">社区鸣谢</p>
-      <h1 class="thanks-title" id="thanksTitle"><span lang="en">Thank</span> <span lang="en">You</span></h1>
-      <p class="thanks-lead">这份虚构名单用于演示社区鸣谢页。</p>
+      <p class="thanks-eyebrow" data-i18n="pages.thanks.eyebrow">社区鸣谢</p>
+      <h1 class="thanks-title" id="thanksTitle" data-i18n="pages.thanks.heading"><span lang="en">Thank</span> <span lang="en">You</span></h1>
+      <p class="thanks-lead" data-i18n="pages.thanks.lead">这份虚构名单用于演示社区鸣谢页。</p>
     </div>
   </section>
 
   <section class="thanks-credits content-width" aria-labelledby="creditsTitle">
     <div class="thanks-credits-head">
-      <h2 class="thanks-credits-title" id="creditsTitle">赞助者</h2>
+      <h2 class="thanks-credits-title" id="creditsTitle" data-i18n="pages.thanks.sponsors">赞助者</h2>
       <p class="thanks-count" id="sponsorCount" aria-live="polite"></p>
     </div>
 
     <div class="thanks-state" id="sponsorState" data-state="loading" role="status" aria-live="polite" aria-atomic="true">
-      <p class="thanks-state-panel" data-panel="loading">正在读取名单…</p>
+      <p class="thanks-state-panel" data-panel="loading" data-i18n="pages.thanks.loading">正在读取名单…</p>
       <div class="thanks-state-panel" data-panel="error" hidden>
-        <p>名单暂时读取失败，请检查网络后重试。</p>
-        <button class="thanks-retry" id="retrySponsors" type="button">重新读取</button>
+        <p data-i18n="pages.thanks.loadError">名单暂时读取失败，请检查网络后重试。</p>
+        <button class="thanks-retry" id="retrySponsors" type="button" data-i18n="pages.shared.retry">重新读取</button>
       </div>
-      <p class="thanks-state-panel" data-panel="empty" hidden>名单还是空的。</p>
+      <p class="thanks-state-panel" data-panel="empty" data-i18n="pages.thanks.empty" hidden>名单还是空的。</p>
     </div>
 
     <ol class="thanks-roll" id="sponsorList" aria-labelledby="creditsTitle" hidden></ol>
@@ -96,8 +101,8 @@
 </main>
 
 <footer class="thanks-footer content-width">
-  <p>本站为独立社区项目，与 Rockstar Games 无关联。</p>
-  <a href="/" class="thanks-footer-link">返回首页 <span aria-hidden="true">↗</span></a>
+  <p data-i18n="pages.shared.independentDisclaimer">本站为独立社区项目，与 Rockstar Games 无关联。</p>
+  <a href="/" class="thanks-footer-link" data-i18n-own="pages.shared.backHome">返回首页 <span aria-hidden="true">↗</span></a>
 </footer>
 <div data-danmaku-mount></div>
 </body>

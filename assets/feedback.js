@@ -1,13 +1,16 @@
 (() => {
   'use strict';
 
+  const t = (key, fallback, params) => window.SiteI18n?.t(key, fallback, params) ??
+    (params ? fallback.replace(/\{(\w+)\}/g, (token, name) => params[name] ?? token) : fallback);
+
   const CLIENT_KEY = 'port-tracker:feedback-client';
   const SEEN_NOTICE_PREFIX = 'port-tracker:site-notice-seen:';
   const MAX_TEXT = 1000;
   const MAX_READ_IDS = 1000;
   const EXIT_MS = 260;
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
-  const replyDate = new Intl.DateTimeFormat('zh-CN', {
+  const replyDate = new Intl.DateTimeFormat(window.SiteI18n?.locale || 'zh-CN', {
     dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Shanghai',
   });
   const byId = id => document.getElementById(id);
@@ -74,7 +77,7 @@
 
     const anchor = document.createElement('a');
     anchor.className = 'feedback-site-notice-link';
-    anchor.href = destination.href;
+    anchor.href = window.SiteI18n?.url(destination.href) ?? destination.href;
     const label = document.createElement('span');
     label.textContent = link.label;
     const svgNamespace = 'http://www.w3.org/2000/svg';
@@ -211,8 +214,8 @@
     const content = document.createElement('p');
     content.className = 'feedback-notice-copy';
     content.textContent = popup.text;
-    const title = typeof popup.title === 'string' && popup.title.trim() ? popup.title : '网站通知';
-    showDialog(title, content, '知道了');
+    const title = typeof popup.title === 'string' && popup.title.trim() ? popup.title : t('widgets.feedback.noticeTitle', '网站通知');
+    showDialog(title, content, t('widgets.feedback.dismiss', '知道了'));
     try { window.localStorage.setItem(key, '1'); } catch { /* Dedupe is unavailable without storage. */ }
   }
 
@@ -230,8 +233,8 @@
         (typeof reply.id === 'string' && reply.id.trim() || typeof reply.id === 'number') &&
         typeof reply.text === 'string' && reply.text.trim()) : [];
       if (replies.length) {
-        const heading = replies.length === 1 ? '收到一条反馈回复' : `收到 ${replies.length} 条反馈回复`;
-        await showDialog(heading, replyList(replies), '知道了');
+        const heading = replies.length === 1 ? t('widgets.feedback.replyOne', '收到一条反馈回复') : t('widgets.feedback.replyMany', '收到 {count} 条反馈回复', { count: replies.length });
+        await showDialog(heading, replyList(replies), t('widgets.feedback.dismiss', '知道了'));
         void markRepliesRead(client, replies).catch(() => {});
       }
     }
@@ -262,33 +265,33 @@
       const draft = field.value;
       const text = draft.trim();
       if (!text || Array.from(text).length > MAX_TEXT) {
-        setStatus(text ? '反馈最多 1000 个字符。' : '请先填写反馈。', 'error');
+        setStatus(text ? t('widgets.feedback.limit', '反馈最多 {max} 个字符。', { max: MAX_TEXT }) : t('widgets.feedback.empty', '请先填写反馈。'), 'error');
         field.focus();
         return;
       }
       const client = getClientSecret();
       if (!client) {
-        setStatus('无法保存反馈标识。请允许此站点使用本地存储后重试。', 'error');
+        setStatus(t('widgets.feedback.storage', '无法保存反馈标识。请允许此站点使用本地存储后重试。'), 'error');
         return;
       }
 
       submit.disabled = true;
-      setStatus('正在发送…');
+      setStatus(t('widgets.feedback.sending', '正在发送…'));
       try {
         const response = await request('/api/feedback', { client, body: { text } });
         if (response.ok) {
           if (field.value === draft) field.value = '';
           syncCount();
-          setStatus('已收到反馈，谢谢！', 'success');
+          setStatus(t('widgets.feedback.sent', '已收到反馈，谢谢！'), 'success');
         } else if (response.status === 429) {
-          setStatus('提交太频繁了，请稍后再试。', 'error');
+          setStatus(t('widgets.feedback.rateLimited', '提交太频繁了，请稍后再试。'), 'error');
         } else if (response.status === 400 || response.status === 413) {
-          setStatus('请检查反馈内容后再试。', 'error');
+          setStatus(t('widgets.feedback.invalid', '请检查反馈内容后再试。'), 'error');
         } else {
-          setStatus('暂时无法发送，请稍后再试。', 'error');
+          setStatus(t('widgets.feedback.unavailable', '暂时无法发送，请稍后再试。'), 'error');
         }
       } catch {
-        setStatus('暂时无法发送，请检查网络后重试。', 'error');
+        setStatus(t('widgets.feedback.network', '暂时无法发送，请检查网络后重试。'), 'error');
       } finally {
         submit.disabled = false;
       }

@@ -6,28 +6,42 @@ const http = require('node:http');
 const path = require('node:path');
 const { createFixtures } = require('./fixtures/demo');
 const { validateContent, projectPublicContent } = require('./api/_content');
+const { resolveLocale, localizeDashboard, localizePublicContent } = require('./api/_content-locale');
 const { projectDashboard } = require('./api/preview-dashboard');
 const { RSS_PATH, buildNewsFeed } = require('./api/_rss');
+const { PUBLIC_ASSETS, PUBLIC_PAGES } = require('./site-assets');
 
 const LOOPBACK = '127.0.0.1';
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.woff2': 'font/woff2',
 };
-const assets = [
-  'app.js', 'styles.css', 'thanks.css', 'thanks.js',
-  'assets/about.css', 'assets/chapters.css', 'assets/dashboard.css', 'assets/demo.css', 'assets/demo.js',
-  'assets/hero-opening.css', 'assets/motion.js', 'assets/navigation.js',
-  'assets/port-score.js', 'assets/progress-motion.css', 'assets/project-progress.js', 'assets/site-content.js',
-  'assets/site-topbar.css', 'assets/site-widgets.css', 'assets/traffic-history.js', 'assets/vendor/lenis.min.js',
-  'assets/ui/fluent.svg', 'assets/ui/octicons.svg', 'assets/ui/barlow-400-latin.woff2',
-  'assets/ui/barlow-700-latin.woff2', 'assets/ui/barlow-condensed-700-latin.woff2', 'assets/ui/barlow-condensed-900-latin.woff2',
-];
-const staticFiles = new Map(assets.map(file => [`/${file}`, file]));
-for (const [route, file] of [
-  ['/', 'index.html'], ['/about/', 'about.html'], ['/about.html', 'about.html'], ['/index.html', 'index.html'], ['/thanks/', 'thanks.html'], ['/thanks.html', 'thanks.html'],
-  ['/feedback/', 'feedback.html'], ['/feedback.html', 'feedback.html'],
-]) staticFiles.set(route, file);
+// The read-only mode keeps the same page and asset paths.
+const interactive = /\/(?:feedback|danmaku(?:-mount|-translate)?)\.js|\/danmaku\.css/;
+const staticFiles = new Map([
+  ...PUBLIC_PAGES,
+  ...Array.from(PUBLIC_ASSETS, route => [route, route.slice(1)])
+    .filter(([route]) => !interactive.test(route) && route !== '/assets/traffic.js'),
+]);
+
+function previewPage(data, file) {
+  let html = data.toString('utf8').split('\n').filter(line => !interactive.test(line)).join('\n')
+    .replace('/assets/traffic.js', '/assets/demo.js')
+    .replace('data-i18n="pages.home.trafficMode">本地', 'data-i18n="pages.home.sampleTrafficMode">样例')
+    .replace('data-i18n="pages.home.traffic">访问统计 · 本地', 'data-i18n="pages.home.sampleTraffic">访问统计 · 示例');
+  if (file === 'feedback.html') {
+    html = html.replace(/<main\b[^]*?<\/main>/, [
+      '<main id="content" class="demo-info content-width" tabindex="-1">',
+      '  <section class="demo-info-panel" aria-labelledby="feedbackTitle">',
+      '    <h1 id="feedbackTitle" data-i18n="pages.shared.feedback">反馈说明</h1>',
+      '    <p data-i18n="pages.feedback.previewNote">本地站点模式提供反馈表单。</p>',
+      '    <a class="text-link" href="/" data-i18n="pages.shared.backHome">返回首页</a>',
+      '  </section>',
+      '</main>',
+    ].join('\n'));
+  }
+  return html;
+}
 
 const headers = {
   'Content-Security-Policy': "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
@@ -41,27 +55,33 @@ function respond(request, response, status, body = '', extra = {}) {
   response.end(request.method === 'HEAD' ? undefined : body);
 }
 
-function sendContent(request, response, text, mime) {
+function sendContent(request, response, text, mime, locale) {
   const length = Buffer.byteLength(text);
-  const etag = `"${createHash('sha256').update(text).digest('base64url')}"`;
+  const hash = createHash('sha256');
+  if (locale) hash.update(locale + '\0');
+  const etag = '"' + hash.update(text).digest('base64url') + '"';
+  const variant = { ETag: etag, ...(locale && { 'Content-Language': locale }) };
   if (request.headers['if-none-match'] === etag) {
-    respond(request, response, 304, '', { ETag: etag });
+    respond(request, response, 304, '', variant);
     return;
   }
-  respond(request, response, 200, text, { 'Content-Type': mime, 'Content-Length': length, ETag: etag });
+  respond(request, response, 200, text, { ...variant, 'Content-Type': mime, 'Content-Length': length });
 }
 
 function createDemoServer({ now = Date.now() } = {}) {
-  const { content, metadata, history, traffic, trafficHistory, sponsors } = createFixtures(now);
+  const { content, metadata, history, traffic, trafficHistory, localizedSponsors } = createFixtures(now);
   const errors = validateContent(content);
   if (errors.length) throw new Error(`Invalid demo fixture: ${JSON.stringify(errors)}`);
   const version = content;
   const updatedAt = new Date(now).toISOString();
   const dashboard = projectDashboard(version, { metadata, generatedAt: updatedAt, history });
+  const publicContent = projectPublicContent(version);
+  const localizedRoutes = new Map(['zh-CN', 'en', 'ja'].map(locale => [locale, new Map([
+    ['/api/content', JSON.stringify({ content: localizePublicContent(publicContent, locale), updatedAt })],
+    ['/api/dashboard', JSON.stringify(localizeDashboard(dashboard, locale))],
+    ['/api/sponsors', JSON.stringify({ sponsors: localizedSponsors(locale) })],
+  ])]));
   const jsonRoutes = new Map([
-    ['/api/content', { content: projectPublicContent(version), updatedAt }],
-    ['/api/dashboard', dashboard],
-    ['/api/sponsors', { sponsors }],
     ['/api/traffic', traffic],
     ['/api/traffic/history', trafficHistory],
   ].map(([route, data]) => [route, JSON.stringify(data)]));
@@ -79,7 +99,9 @@ function createDemoServer({ now = Date.now() } = {}) {
         respond(request, response, 400, 'Invalid request path.');
         return;
       }
-      const { pathname } = new URL(request.url, origin);
+      const { pathname, search, searchParams } = new URL(request.url, origin);
+      const locale = resolveLocale(searchParams.get('lang'));
+      const localized = localizedRoutes.get(locale);
       if (request.method !== 'GET' && request.method !== 'HEAD') {
         respond(request, response, 405, 'This demo provides read-only routes.', { Allow: 'GET, HEAD' });
         return;
@@ -87,7 +109,9 @@ function createDemoServer({ now = Date.now() } = {}) {
       if (pathname === '/favicon.ico') {
         respond(request, response, 204);
       } else if (pathname === '/thanks' || pathname === '/feedback' || pathname === '/about') {
-        respond(request, response, 308, '', { Location: `${pathname}/` });
+        respond(request, response, 308, '', { Location: pathname + '/' + search });
+      } else if (localized.has(pathname)) {
+        sendContent(request, response, localized.get(pathname), 'application/json; charset=utf-8', locale);
       } else if (jsonRoutes.has(pathname)) {
         sendContent(request, response, jsonRoutes.get(pathname), 'application/json; charset=utf-8');
       } else if (pathname === '/api/traffic/events') {
@@ -95,19 +119,11 @@ function createDemoServer({ now = Date.now() } = {}) {
           'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store',
         });
       } else if (pathname === RSS_PATH) {
-        sendContent(request, response, buildNewsFeed(dashboard.timeline, origin), 'application/rss+xml; charset=utf-8');
-      } else if (pathname === '/feedback/' || pathname === '/feedback.html') {
-        sendContent(request, response, '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>反馈说明</title><link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/assets/demo.css"><main class="demo-info content-width"><section class="demo-info-panel"><h1 id="feedbackTitle">反馈说明</h1><p>本地站点模式提供反馈表单。</p><a class="text-link" href="/">返回首页</a></section></main></html>', 'text/html; charset=utf-8');
+        sendContent(request, response, buildNewsFeed(dashboard.timeline, origin, locale), 'application/rss+xml; charset=utf-8', locale);
       } else if (staticFiles.has(pathname)) {
         const file = staticFiles.get(pathname);
-        let data = await readFile(path.join(__dirname, file));
-        if (file.endsWith('.html')) {
-          data = data.toString('utf8')
-            .replace(/^.*(?:<script[^>]*\/(?:feedback|danmaku|danmaku-mount)\.js|<link[^>]*\/(?:feedback|danmaku)\.css).*(?:\n|$)/gm, '')
-            .replace('/assets/traffic.js', '/assets/demo.js')
-            .replace('class="demo-traffic-label">本地', 'class="demo-traffic-label">样例')
-            .replace('访问统计 · 本地', '访问统计 · 示例');
-        }
+        const raw = await readFile(path.join(__dirname, file));
+        const data = file.endsWith('.html') ? previewPage(raw, file) : raw;
         sendContent(request, response, data, MIME[path.extname(file)]);
       } else {
         respond(request, response, 404, 'Not found.');

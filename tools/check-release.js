@@ -11,20 +11,21 @@ const allowlist = [
   '.gitattributes', '.gitignore', 'README.md', 'about.html', 'app.js', 'feedback.html',
   'index.html', 'package.json', 'preview.js', 'server.js', 'site-assets.js',
   'styles.css', 'thanks.css', 'thanks.html', 'thanks.js',
-  'docs/sync.md',
+  'docs/localization.md', 'docs/sync.md',
   'admin/account.js', 'admin/admin.css', 'admin/admin.js', 'admin/avatar.js',
   'admin/danmaku.js', 'admin/rank-tags.js', 'admin/feedback.css', 'admin/feedback.html', 'admin/feedback.js',
   'admin/index.html', 'admin/login.css', 'admin/login.html', 'admin/login.js',
   'admin/router.js', 'admin/shell.js', 'admin/sponsors.css', 'admin/sponsors.html', 'admin/sponsors.js',
-  'api/_admin-accounts.js', 'api/_admin-auth.js', 'api/_content.js',
+  'api/_admin-accounts.js', 'api/_admin-auth.js', 'api/_content-locale.js', 'api/_content.js',
   'api/_danmaku-community-mutes.js', 'api/_danmaku-filter.js', 'api/_danmaku-history.js',
   'api/_danmaku-mutes.js', 'api/_danmaku-nonces.js', 'api/_danmaku-rank-grants.js', 'api/_danmaku-scheduled.js',
   'api/_danmaku-settings.js', 'api/_danmaku-words.js', 'api/_danmaku.js', 'api/_feedback.js',
   'api/_progress-history.js', 'api/_rss.js', 'api/_sponsors.js', 'api/_traffic-events.js',
   'api/_traffic-history.js', 'api/dashboard.js', 'api/preview-dashboard.js', 'api/traffic.js',
-  'assets/danmaku-mount.js', 'assets/danmaku.css', 'assets/danmaku.js', 'assets/feedback.css', 'assets/feedback.js',
+  'assets/danmaku-mount.js', 'assets/danmaku-translate.js', 'assets/danmaku.css', 'assets/danmaku.js', 'assets/feedback.css', 'assets/feedback.js',
   'assets/about.css', 'assets/chapters.css', 'assets/dashboard.css', 'assets/demo.css', 'assets/demo.js',
-  'assets/hero-opening.css', 'assets/motion.js', 'assets/navigation.js', 'assets/port-score.js',
+  'assets/hero-opening.css', 'assets/i18n-home.js', 'assets/i18n-pages.js', 'assets/i18n-widgets.js', 'assets/i18n.css', 'assets/i18n.js',
+  'assets/motion.js', 'assets/navigation.js', 'assets/port-score.js',
   'assets/progress-motion.css', 'assets/project-progress.js', 'assets/site-content.js', 'assets/site-topbar.css',
   'assets/site-widgets.css', 'assets/traffic-history.js', 'assets/traffic.js',
   'assets/ui/Fluent-LICENSE.txt', 'assets/ui/OFL-Barlow.txt', 'assets/ui/OFL-BarlowCondensed.txt', 'assets/ui/Octicons-LICENSE.txt',
@@ -32,7 +33,7 @@ const allowlist = [
   'assets/ui/barlow-condensed-700-latin.woff2', 'assets/ui/barlow-condensed-900-latin.woff2',
   'assets/ui/fluent.svg', 'assets/ui/octicons.svg', 'assets/vendor/Lenis-LICENSE.txt', 'assets/vendor/lenis.min.js',
   'docs/demo-screenshot.png', 'docs/provenance.md', 'fixtures/demo.js',
-  'scripts/bootstrap-account-owner.js', 'test/port-score.test.js', 'test/server.test.js', 'tools/check-release.js', 'tools/sync-core.cjs', 'tools/sync-from-site.cjs',
+  'scripts/bootstrap-account-owner.js', 'test/i18n.test.js', 'test/port-score.test.js', 'test/server.test.js', 'tools/check-release.js', 'tools/sync-core.cjs', 'tools/sync-from-site.cjs',
 ].sort();
 const permitted = new Set([...allowlist, manifest]);
 const directories = new Set();
@@ -72,7 +73,7 @@ function permittedHost(file, host) {
 function list(relative = '') {
   const found = [];
   for (const entry of fs.readdirSync(path.resolve(root, relative), { withFileTypes: true })) {
-    if (!relative && entry.name === '.git' && entry.isDirectory() && !entry.isSymbolicLink()) continue;
+    if (!relative && entry.isDirectory() && !entry.isSymbolicLink() && (entry.name === '.git' || entry.name === '.preview')) continue;
     const file = relative ? `${relative}/${entry.name}` : entry.name;
     assert(!entry.isSymbolicLink(), `Unexpected link: ${file}`);
     if (entry.isDirectory() && directories.has(file)) found.push(...list(file));

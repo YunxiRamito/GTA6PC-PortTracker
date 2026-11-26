@@ -1,6 +1,9 @@
 (() => {
   'use strict';
 
+  const t = (key, fallback, params) => window.SiteI18n?.t(key, fallback, params) ??
+    (params ? fallback.replace(/\{(\w+)\}/g, (token, name) => params[name] ?? token) : fallback);
+
   const board = document.getElementById('trafficBoard');
   const onlineCount = document.getElementById('onlineCount');
   const compactCount = document.getElementById('onlineCompactCount');
@@ -10,11 +13,16 @@
 
   const heartbeatMs = 30_000;
   const timeoutMs = 10_000;
-  const formatNumber = new Intl.NumberFormat(document.documentElement.lang || undefined);
+  const formatNumber = new Intl.NumberFormat(window.SiteI18n?.locale || document.documentElement.lang || undefined);
   const status = document.createElement('span');
   status.className = 'traffic-status';
   board.querySelector('.traffic-head')?.append(status);
-  const statusLabels = { loading: '连接中', offline: '离线', stale: '未能更新', unavailable: '暂不可用' };
+  const statusLabels = {
+    loading: t('widgets.traffic.loading', '连接中'),
+    offline: t('widgets.traffic.offline', '离线'),
+    stale: t('widgets.traffic.stale', '未能更新'),
+    unavailable: t('widgets.traffic.unavailable', '暂不可用'),
+  };
 
   function setState(state, title, detail) {
     board.dataset.state = state;
@@ -41,7 +49,7 @@
     pageId = createPageId();
   } catch { /* No insecure ID fallback. */ }
   if (!pageId) {
-    setState('unavailable', '此浏览器无法获取访问统计。');
+    setState('unavailable', t('widgets.traffic.unsupported', '此浏览器无法获取访问统计。'));
     return;
   }
 
@@ -72,8 +80,8 @@
       const combined = scope === 'combined';
       board.dataset.scope = combined ? 'combined' : 'local';
       setState(combined && !peerFresh ? 'partial' : 'live',
-        `按最近 ${formatNumber.format(windowSeconds)} 秒的访问活动估算在线人数。`,
-        combined ? (peerFresh ? '两站合计' : '两站同步中') : '');
+        t('widgets.traffic.onlineEstimate', '按最近 {seconds} 秒的访问活动估算在线人数。', { seconds: formatNumber.format(windowSeconds) }),
+        combined ? (peerFresh ? t('widgets.traffic.combined', '两站合计') : t('widgets.traffic.syncing', '两站同步中')) : '');
     }
   }
 
@@ -110,7 +118,7 @@
   }
 
   function markOffline() {
-    setState('offline', visitPending ? '网络已断开，联网后更新。' : '网络已断开，当前显示上次统计。');
+    setState('offline', visitPending ? t('widgets.traffic.offlinePending', '网络已断开，联网后更新。') : t('widgets.traffic.offlineCached', '网络已断开，当前显示上次统计。'));
   }
 
   async function refresh() {
@@ -126,7 +134,7 @@
     }
 
     inFlight = true;
-    if (board.dataset.state === 'offline') setState('loading', '正在更新访问统计。');
+    if (board.dataset.state === 'offline') setState('loading', t('widgets.traffic.refreshing', '正在更新访问统计。'));
     const startedAtRevision = streamRevision;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -151,8 +159,8 @@
     } catch {
       if (navigator.onLine === false) markOffline();
       else if (startedAtRevision !== streamRevision) { /* A newer push already updated the panel. */ }
-      else if (visitPending) setState('unavailable', '暂时无法获取访问统计，稍后重试。');
-      else setState('stale', '暂时无法更新，当前显示上次统计。');
+      else if (visitPending) setState('unavailable', t('widgets.traffic.loadFailed', '暂时无法获取访问统计，稍后重试。'));
+      else setState('stale', t('widgets.traffic.updateFailed', '暂时无法更新，当前显示上次统计。'));
     } finally {
       clearTimeout(timeout);
       inFlight = false;
@@ -174,7 +182,7 @@
       summary?.focus({ preventScroll: true });
     }
   });
-  setState('loading', '正在获取访问统计。');
+  setState('loading', t('widgets.traffic.fetching', '正在获取访问统计。'));
   function onConnectionChange() {
     syncStream();
     refresh();
