@@ -9,7 +9,7 @@ const { PUBLIC_ASSETS } = require('../site-assets');
 
 const source = file => readFileSync(path.resolve(__dirname, '..', file), 'utf8');
 
-test('only public templates load the locale core, dictionaries, and history translator in order', () => {
+test('public templates load their dictionaries and optional history translator in order', () => {
   const words = new Map();
   const register = dictionary => {
     for (const [key, pair] of Object.entries(dictionary)) {
@@ -18,15 +18,23 @@ test('only public templates load the locale core, dictionaries, and history tran
       words.set(key, pair);
     }
   };
-  for (const file of ['i18n-pages.js', 'i18n-home.js', 'i18n-widgets.js']) {
+  for (const file of ['i18n-pages.js', 'i18n-home.js', 'i18n-hardware-check.js', 'i18n-widgets.js']) {
     runInNewContext(source('assets/' + file), { window: { SiteI18n: { register, apply() {} } } });
   }
-  for (const page of ['index.html', 'about.html', 'feedback.html', 'thanks.html']) {
+  for (const page of ['index.html', 'about.html', 'feedback.html', 'thanks.html', 'hardware-check.html']) {
     const html = source(page);
     const scripts = [...html.matchAll(/<script defer src="([^"]+)"/g)].map(([, href]) => href);
-    const locales = ['/assets/i18n.js', '/assets/i18n-pages.js', ...(page === 'index.html' ? ['/assets/i18n-home.js'] : []), '/assets/i18n-widgets.js'];
+    const hardware = page === 'hardware-check.html';
+    const locales = ['/assets/i18n.js', '/assets/i18n-pages.js',
+      ...(page === 'index.html' ? ['/assets/i18n-home.js'] : []),
+      ...(hardware ? ['/assets/i18n-hardware-check.js'] : []), '/assets/i18n-widgets.js'];
     assert.deepEqual(scripts.slice(0, locales.length), locales, page);
-    assert.equal(scripts[scripts.indexOf('/assets/danmaku.js') + 1], '/assets/danmaku-translate.js', page);
+    if (hardware) {
+      assert.ok(!scripts.includes('/assets/danmaku.js'));
+      assert.equal(scripts.at(-1), '/assets/hardware-check.js');
+    } else {
+      assert.equal(scripts[scripts.indexOf('/assets/danmaku.js') + 1], '/assets/danmaku-translate.js', page);
+    }
     for (const [, href] of html.matchAll(/<(?:script|link)\b[^>]*?\b(?:src|href)="(\/(?!\/)[^"]+)"/g)) {
       if (href !== '/rss.xml') assert.ok(PUBLIC_ASSETS.has(href), href);
     }
@@ -52,6 +60,8 @@ test('language choice applies to local public links and leaves external, fragmen
   assert.equal(saved.get('port-tracker:locale'), 'ja');
   assert.equal(url('/feedback.html#content'), '/feedback.html?lang=ja#content');
   assert.equal(url('/rss.xml'), '/rss.xml?lang=ja');
+  assert.equal(url('/can-i-run/#hardwareTargets'), '/can-i-run/?lang=ja#hardwareTargets');
+  assert.equal(url('/can-i-run'), '/can-i-run?lang=ja');
   assert.equal(url('/api/dashboard?force=1'), '/api/dashboard?force=1&lang=ja');
   for (const unmodified of ['#scope', '/admin/', '/api/admin/content', '/about/?lang=en', 'https://127.0.0.1:8788/about/']) {
     assert.equal(url(unmodified), unmodified);

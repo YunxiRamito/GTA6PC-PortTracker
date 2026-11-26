@@ -18,6 +18,8 @@ window.SiteI18n.register({
   'pages.shared.closeMenu': ['Close site menu', 'サイトメニューを閉じる'],
   'pages.shared.community': ['GTA VI COMMUNITY', 'GTA VI コミュニティ'],
   'pages.shared.menuLinks': ['Site menu links', 'サイトメニューのリンク'],
+  'pages.shared.hardwareCheck': ['PC hardware check', 'PC 構成チェック'],
+  'pages.home.hardwareCheckDemo': ['Demo data', 'サンプルデータ'],
   'pages.shared.feedback': ['Feedback', 'ご意見・ご要望'],
   'pages.shared.loading': ['Loading…', '読み込み中…'],
   'pages.shared.retry': ['Try again', '再試行'],

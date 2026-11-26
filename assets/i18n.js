@@ -4,7 +4,7 @@
   const languages = Object.freeze({ 'zh-CN': '简体中文', en: 'English', ja: '日本語' });
   const defaultLocale = 'zh-CN';
   const storageKey = 'port-tracker:locale';
-  const publicPath = /^(?:\/|\/index\.html|\/(?:about|thanks|feedback)(?:\/|\.html)?|\/rss\.xml|\/api\/(?:content|dashboard|sponsors))$/;
+  const publicPath = /^(?:\/|\/index\.html|\/(?:about|thanks|feedback)(?:\/|\.html)?|\/can-i-run\/?|\/rss\.xml|\/api\/(?:content|dashboard|sponsors))$/;
   const page = new URL(window.location.href);
   const requested = page.searchParams.get('lang');
   let saved;

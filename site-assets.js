@@ -6,6 +6,7 @@ const PUBLIC_ASSETS = new Set([
   '/assets/danmaku-mount.js', '/assets/danmaku-translate.js', '/assets/danmaku.css', '/assets/danmaku.js',
   '/assets/demo.css', '/assets/demo.js', '/assets/feedback.css', '/assets/feedback.js',
   '/assets/i18n.css', '/assets/i18n.js', '/assets/i18n-pages.js', '/assets/i18n-home.js', '/assets/i18n-widgets.js',
+  '/assets/hardware-check.css', '/assets/hardware-check.js', '/assets/i18n-hardware-check.js',
   '/assets/hero-opening.css', '/assets/motion.js', '/assets/navigation.js', '/assets/port-score.js',
   '/assets/progress-motion.css', '/assets/project-progress.js', '/assets/site-content.js',
   '/assets/site-topbar.css', '/assets/site-widgets.css', '/assets/traffic-history.js', '/assets/traffic.js',
@@ -15,6 +16,7 @@ const PUBLIC_ASSETS = new Set([
 ]);
 const PUBLIC_PAGES = new Map([
   ['/', 'index.html'], ['/index.html', 'index.html'],
+  ['/can-i-run', 'hardware-check.html'], ['/can-i-run/', 'hardware-check.html'],
   ['/about', 'about.html'], ['/about/', 'about.html'], ['/about.html', 'about.html'],
   ['/thanks', 'thanks.html'], ['/thanks/', 'thanks.html'], ['/thanks.html', 'thanks.html'],
   ['/feedback', 'feedback.html'], ['/feedback/', 'feedback.html'], ['/feedback.html', 'feedback.html'],

@@ -9,7 +9,7 @@ const root = path.resolve(__dirname, '..');
 const manifest = 'release-manifest.json';
 const allowlist = [
   '.gitattributes', '.gitignore', 'README.md', 'about.html', 'app.js', 'feedback.html',
-  'index.html', 'package.json', 'preview.js', 'server.js', 'site-assets.js',
+  'hardware-check.html', 'index.html', 'package.json', 'preview.js', 'server.js', 'site-assets.js',
   'styles.css', 'thanks.css', 'thanks.html', 'thanks.js',
   'docs/localization.md', 'docs/sync.md',
   'admin/account.js', 'admin/admin.css', 'admin/admin.js', 'admin/avatar.js',
@@ -24,6 +24,8 @@ const allowlist = [
   'api/_traffic-history.js', 'api/dashboard.js', 'api/preview-dashboard.js', 'api/traffic.js',
   'assets/danmaku-mount.js', 'assets/danmaku-translate.js', 'assets/danmaku.css', 'assets/danmaku.js', 'assets/feedback.css', 'assets/feedback.js',
   'assets/about.css', 'assets/chapters.css', 'assets/dashboard.css', 'assets/demo.css', 'assets/demo.js',
+  'api/hardware-check.js',
+  'assets/hardware-check.css', 'assets/hardware-check.js', 'assets/i18n-hardware-check.js',
   'assets/hero-opening.css', 'assets/i18n-home.js', 'assets/i18n-pages.js', 'assets/i18n-widgets.js', 'assets/i18n.css', 'assets/i18n.js',
   'assets/motion.js', 'assets/navigation.js', 'assets/port-score.js',
   'assets/progress-motion.css', 'assets/project-progress.js', 'assets/site-content.js', 'assets/site-topbar.css',
@@ -32,8 +34,8 @@ const allowlist = [
   'assets/ui/barlow-400-latin.woff2', 'assets/ui/barlow-700-latin.woff2',
   'assets/ui/barlow-condensed-700-latin.woff2', 'assets/ui/barlow-condensed-900-latin.woff2',
   'assets/ui/fluent.svg', 'assets/ui/octicons.svg', 'assets/vendor/Lenis-LICENSE.txt', 'assets/vendor/lenis.min.js',
-  'docs/demo-screenshot.png', 'docs/provenance.md', 'fixtures/demo.js',
-  'scripts/bootstrap-account-owner.js', 'test/i18n.test.js', 'test/port-score.test.js', 'test/server.test.js', 'tools/check-release.js', 'tools/sync-core.cjs', 'tools/sync-from-site.cjs',
+  'docs/demo-screenshot.png', 'docs/provenance.md', 'fixtures/demo.js', 'fixtures/hardware-demo.js',
+  'scripts/bootstrap-account-owner.js', 'test/hardware-check.test.js', 'test/i18n.test.js', 'test/port-score.test.js', 'test/server.test.js', 'tools/check-release.js', 'tools/sync-core.cjs', 'tools/sync-from-site.cjs',
 ].sort();
 const permitted = new Set([...allowlist, manifest]);
 const directories = new Set();
@@ -58,6 +60,9 @@ const markdownHosts = new Set(['127.0.0.1', 'github.com', 'registry.npmjs.org', 
 const namespaceHosts = new Set(['www.w3.org']);
 const licenseHosts = new Set(['github.com', 'scripts.sil.org']);
 const loopbackHosts = new Set(['127.0.0.1', 'localhost']);
+const hardwareReferenceHost = 'gta6recomp.com';
+const hardwareReference = 'https://' + hardwareReferenceHost + '/can-i-run';
+const hardwareReferenceFiles = new Set(['hardware-check.html', 'fixtures/hardware-demo.js']);
 
 function permittedHost(file, host) {
   if (namespaceHosts.has(host)) return true;
@@ -119,7 +124,11 @@ function scan(file) {
     if (first) flag(category, first.index);
   }
   for (const match of text.matchAll(/\b(?:https?|wss?):\/\/([a-z0-9.-]+)(?=[\s/?#:'"`)>]|$)/gi)) {
-    if (!permittedHost(file, match[1].toLowerCase())) flag('Unreviewed endpoint', match.index);
+    const host = match[1].toLowerCase();
+    if (host === hardwareReferenceHost) {
+      const endpoint = text.slice(match.index).match(/^[^\s"'`<>()]+/)?.[0];
+      if (!hardwareReferenceFiles.has(file) || endpoint !== hardwareReference) flag('Unreviewed endpoint', match.index);
+    } else if (!permittedHost(file, host)) flag('Unreviewed endpoint', match.index);
   }
   return text;
 }

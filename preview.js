@@ -5,6 +5,7 @@ const { readFile } = require('node:fs/promises');
 const http = require('node:http');
 const path = require('node:path');
 const { createFixtures } = require('./fixtures/demo');
+const { HARDWARE_CHECK_PATH, serveHardwareCheck } = require('./api/hardware-check');
 const { validateContent, projectPublicContent } = require('./api/_content');
 const { resolveLocale, localizeDashboard, localizePublicContent } = require('./api/_content-locale');
 const { projectDashboard } = require('./api/preview-dashboard');
@@ -100,6 +101,13 @@ function createDemoServer({ now = Date.now() } = {}) {
         return;
       }
       const { pathname, search, searchParams } = new URL(request.url, origin);
+      if (pathname === HARDWARE_CHECK_PATH) {
+        if ((request.headers.origin && request.headers.origin !== origin) ||
+            (request.headers['sec-fetch-site'] && !['same-origin', 'none'].includes(request.headers['sec-fetch-site']))) {
+          return respond(request, response, 403, 'Use the demo from this site.');
+        }
+        return serveHardwareCheck(request, response);
+      }
       const locale = resolveLocale(searchParams.get('lang'));
       const localized = localizedRoutes.get(locale);
       if (request.method !== 'GET' && request.method !== 'HEAD') {

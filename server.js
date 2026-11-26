@@ -23,6 +23,7 @@ const { createContentStore, projectPublicContent, ContentError } = require('./ap
 const { DEFAULT_LOCALE, resolveLocale, localizePublicContent, localizeDashboard } = require('./api/_content-locale');
 const { RSS_PATH, buildNewsFeed } = require('./api/_rss');
 const { createFixtures } = require('./fixtures/demo');
+const { HARDWARE_CHECK_PATH, serveHardwareCheck } = require('./api/hardware-check');
 const { PUBLIC_ASSETS, PUBLIC_PAGES, PAGE_SECURITY_HEADERS } = require('./site-assets');
 
 const PUBLIC_FEEDBACK_ROUTES = new Set(['/api/feedback', '/api/feedback/replies', '/api/feedback/replies/read', '/api/site-notices']);
@@ -940,6 +941,7 @@ function createPublicServer({ getContent, getSponsors, getSponsorAvatar, getDash
         return sendJson(res, 503, { error: '新闻订阅暂时不可用' });
       }
     }
+    if (pathname === HARDWARE_CHECK_PATH) return serveHardwareCheck(req, res);
     if (pathname === '/api/content') {
       if (req.method !== 'GET') return sendJson(res, 405, { error: '只支持 GET' }, { Allow: 'GET', Connection: 'close' });
       const data = getContent();
@@ -969,7 +971,7 @@ function createPublicServer({ getContent, getSponsors, getSponsorAvatar, getDash
       if (pathname === '/favicon.ico') { res.writeHead(204); return res.end(); }
       const page = PUBLIC_PAGES.get(pathname);
       if (page) {
-        const device = req.method === 'GET' ? danmaku.issueBrowserDevice(req) : {};
+        const device = req.method === 'GET' && page !== 'hardware-check.html' ? danmaku.issueBrowserDevice(req) : {};
         return serveHtml(res, page, req, { ...PAGE_SECURITY_HEADERS, ...device });
       }
       if (PUBLIC_ASSETS.has(pathname)) return serveStatic(res, pathname.slice(1), req);

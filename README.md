@@ -41,20 +41,23 @@ node preview.js
 
 公开页面可在顶栏切换简体中文、English 和日本語。两个入口的内容、工程档案与 RSS 同时支持 `?lang=en` 和 `?lang=ja`。静态文案和内容译文的更新步骤见[三语维护说明](docs/localization.md)。
 
+在首页「现在能玩吗？」下打开「电脑配置预估」（`/can-i-run/`）。两个入口均提供随应用分发的虚构配置和档位。示例结果对照虚构参考值，配置选项和搜索词在浏览器内处理。
+
 ## 代码和接口
 
 | 入口 | 用途 |
 | --- | --- |
 | `index.html`、`app.js`、`assets/` | 首页、新闻、工程卡片、进度与交互 |
-| `about.html`、`thanks.html`、`feedback.html` | 关于、鸣谢和反馈页面 |
+| `about.html`、`thanks.html`、`feedback.html`、`hardware-check.html` | 关于、鸣谢、反馈和电脑配置示例 |
 | `server.js`、`api/` | HTTP 路由、内容验证、持久化与权限检查 |
 | `admin/` | 管理控制台、登录与账号管理 |
-| `fixtures/demo.js` | 项目、新闻和统计样例 |
+| `fixtures/demo.js`、`fixtures/hardware-demo.js` | 项目、新闻、统计和电脑配置样例 |
 | `tools/sync-from-site.cjs` | 经审阅更新前端与后端源码 |
 
 | 路径 | 主要用途 |
 | --- | --- |
 | `GET /api/content`、`GET /api/dashboard`、`GET /rss.xml` | 公开内容、汇总和新闻订阅 |
+| `GET /api/hardware-check` | 虚构配置、档位和储存选项。响应头 `X-GTAVI-Hardware-Data: synthetic` 标识样例 |
 | `GET /api/traffic`、`GET /api/traffic/history` | 本地在线统计和趋势 |
 | `POST /api/danmaku`、`GET /api/danmaku/events` | 消息提交与 SSE，提交前从 `/api/danmaku/nonce` 获取一次性凭据 |
 | `POST /api/feedback`、`GET /api/feedback/replies` | 浏览器反馈和回复，使用 `X-Feedback-Client` 关联 |

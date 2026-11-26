@@ -123,6 +123,35 @@
 }
 .hero-opening .route-playability-source { min-block-size: 2.75rem; padding-inline: .3rem; }
 
+.route-playability-hardware {
+  flex: 0 0 100%;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0 .65rem;
+  border-block-start: 1px solid var(--hero-opening-line);
+  padding-block-start: .1rem;
+  color: var(--muted);
+  font-size: .75rem;
+}
+.route-playability-hardware a {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  min-block-size: 2.75rem;
+  color: var(--accent);
+  font-weight: 700;
+  transition: color 220ms var(--ease);
+}
+.route-playability-hardware a:is(:hover, :focus-visible) { color: var(--paper); }
+.route-playability-hardware .ui-icon { flex: none; transition: transform 220ms var(--ease); }
+.route-playability-hardware a:is(:hover, :focus-visible) .ui-icon { transform: translateX(2px); }
+.route-playability-hardware span { padding-block: .2rem; }
+@media (prefers-reduced-motion: reduce) {
+  .route-playability-hardware a, .route-playability-hardware .ui-icon { transition: none; }
+  .route-playability-hardware a:is(:hover, :focus-visible) .ui-icon { transform: none; }
+}
+
 .hero-opening .poster-index {
   grid-template-columns: minmax(0, 1fr) auto;
   grid-template-areas: 'title title' 'news news' 'explore qq';
