@@ -68,6 +68,41 @@ test('language choice applies to local public links and leaves external, fragmen
   }
 });
 
+test('site notice links suppress external referrers and preserve localized same-tab links', async () => {
+  const external = 'https://127.0.0.1:8788/video?part=2#intro';
+  for (const [url, href] of [[external, external], ['/feedback.html#content', '/feedback.html?lang=ja#content'],
+    ['#scope', '/about.html?lang=ja#scope']]) {
+    let anchor;
+    const element = () => ({ setAttribute() {}, append() {}, addEventListener() {} });
+    const nodes = {
+      siteNoticeStrip: { hidden: true, offsetHeight: 32, classList: { add() {}, remove() {} } },
+      siteNoticeText: element(),
+      siteNoticeClose: { ...element(), before(link) { anchor = link; } },
+    };
+    const document = {
+      documentElement: { style: { setProperty() {}, removeProperty() {} } },
+      querySelector: () => null,
+      getElementById: key => nodes[key] ?? null,
+      createElement: element,
+      createElementNS: element,
+    };
+    const window = { location: { href: 'http://127.0.0.1:8787/about.html?lang=ja' }, matchMedia: () => ({ matches: true }) };
+    const context = { document, window, URL, AbortSignal, ResizeObserver: class { observe() {} },
+      fetch: async request => {
+        assert.equal(request, '/api/site-notices');
+        return { ok: true, json: async () => ({ header: 'Sample notice', headerLink: { label: 'Details', url } }) };
+      } };
+    runInNewContext(source('assets/i18n.js'), context);
+    runInNewContext(source('assets/feedback.js'), context);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(nodes.siteNoticeStrip.hidden, false, url);
+    assert.equal(new URL(anchor.href, window.location.href).href, new URL(href, window.location.href).href);
+    assert.deepEqual([anchor.target, anchor.rel, anchor.referrerPolicy], url === external
+      ? ['_blank', 'noopener noreferrer', 'no-referrer']
+      : [undefined, undefined, undefined]);
+  }
+});
+
 function historyFixture({ supported, fail = false }) {
   const makeNode = () => ({
     attrs: {}, handlers: {}, textContent: '', children: [],
