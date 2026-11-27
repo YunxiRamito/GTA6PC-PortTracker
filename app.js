@@ -444,6 +444,8 @@
     // Older dashboards can still use these built-in names during a rolling update.
     if (key === 'menu' && label === '主菜单') return t('home.port.stage.mainMenu', label);
     if (key === 'stable' && label === '稳定游玩') return t('home.port.stage.stableGameplay', label);
+    if (key === 'stable' && label === '完整可玩') return t('home.port.stage.stable', label);
+    if (key === 'stable' && label === '画面与帧率达标') return t('home.port.stage.qualityTarget', label);
     var builtin = key === 'rendered' ? '完全渲染' : portScoreLib?.MILESTONES?.find(function (item) { return item.key === key; })?.label;
     // API and editorial labels take precedence over the built-in labels.
     return builtin && (label === builtin || label === key) ? t('home.port.stage.' + key, label) : label;
@@ -466,7 +468,27 @@
     sometimes: '偶尔崩溃', rarely: '很少崩溃', stable: '稳定',
   };
 
-  function cardPortFactors(pp) {
+  function cardFactorRows(rows) {
+    return '<div class="card-port-factors" aria-label="' + escapeAttr(t('home.port.factors', '项目进度说明')) + '">' + rows.map(function (row) {
+      return '<div class="card-port-factor"><span>' + escapeHtml(row[0]) + '</span><b>' + escapeHtml(row[1]) + '</b></div>';
+    }).join('') + '</div>';
+  }
+
+  function cardPortFactors(pp, scored, version) {
+    if (version === 5) {
+      if (scored.reached !== 'prison' && scored.reached !== 'stable') return '';
+      var verified = scored.factors || {};
+      var number = new Intl.NumberFormat(locale, { maximumFractionDigits: 1 });
+      var outOf100 = function (value, pending) {
+        return typeof value === 'number' && Number.isFinite(value) ? number.format(value) + '/100' : pending;
+      };
+      return cardFactorRows([
+        [t('home.port.factor.renderingScore', '画面分'), outOf100(verified.rendering, t('home.port.factor.renderingPending', '画面待核实'))],
+        [t('home.port.factor.performanceScore', '帧率分'), outOf100(verified.performance, t('home.port.factor.benchmarkPending', '参考机待测')) +
+          (Number.isFinite(scored.benchmarkFps) ? ' · ' + number.format(scored.benchmarkFps) + ' FPS' : '')],
+        [t('home.port.factor.stability', '稳定性'), outOf100(verified.stability, t('home.status.unknown', '待核实'))],
+      ]);
+    }
     var gta = pp && pp.gta && typeof pp.gta === 'object' ? pp.gta : {};
     var factors = pp && (pp.factors || pp.factorSummary) && typeof (pp.factors || pp.factorSummary) === 'object'
       ? (pp.factors || pp.factorSummary) : {};
@@ -483,10 +505,7 @@
       [t('home.port.factor.completeness', '完整性'), factorText(factors.completeness || factors.integrity, factorText(pp.completeness, unknown))],
     ];
     var hasSource = Object.keys(factors).length || Object.keys(gta).length || pp.completeness !== undefined;
-    if (!hasSource) return '';
-    return '<div class="card-port-factors" aria-label="' + escapeAttr(t('home.port.factors', '项目进度说明')) + '">' + rows.map(function (row) {
-      return '<div class="card-port-factor"><span>' + escapeHtml(row[0]) + '</span><b>' + escapeHtml(row[1]) + '</b></div>';
-    }).join('') + '</div>';
+    return hasSource ? cardFactorRows(rows) : '';
   }
 
   function cardPortProgress(p, open, progress) {
@@ -519,7 +538,7 @@
       }).join('') + '</div>';
     }
     var pp = p.portProgress;
-    var factors = cardPortFactors(pp);
+    var factors = cardPortFactors(pp, scored, progress?.modelVersion ?? portScoreLib.MODEL_VERSION);
     var works = Array.isArray(pp.works) && pp.works.length
       ? '<div class="card-port-works"><p class="card-port-works-title">' + escapeHtml(t('home.port.works', '已经能做到')) + '</p><ul>' +
         pp.works.slice(0, 6).map(function (w) { return '<li>' + escapeHtml(w) + '</li>'; }).join('') +

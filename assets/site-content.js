@@ -783,6 +783,8 @@ if (typeof module === 'object' && module.exports) {
 
   // ---- Port progress renderer (homepage total-progress block) ----
   const portScoreApi = window.PortScore;
+  const subscorePanel = $('portProgressSubscores');
+  const subscoreNumber = new Intl.NumberFormat(locale, { maximumFractionDigits: 1 });
   const pinBox = $('portProgressAvatars');
   let latestPins;
   let pinSignature;
@@ -835,6 +837,7 @@ if (typeof module === 'object' && module.exports) {
     // Older dashboards can still use these built-in names during a rolling update.
     if (key === 'menu' && label === '主菜单') return t('home.port.stage.mainMenu', label);
     if (key === 'stable' && label === '稳定游玩') return t('home.port.stage.stableGameplay', label);
+    if (key === 'stable' && label === '画面与帧率达标') return t('home.port.stage.qualityTargetShort', label);
     const builtin = key === 'rendered' ? '完全渲染' : portScoreApi?.MILESTONES?.find(item => item.key === key)?.label;
     // The built-in names can arrive from the score library or in the API payload.
     return builtin && (label === builtin || label === key) ? t('home.port.stage.' + key, label) : label;
@@ -887,6 +890,64 @@ if (typeof module === 'object' && module.exports) {
     if (hadFocus && leader.hidden) $('homeNewsSummary')?.focus({ preventScroll: true });
   }
 
+  function renderSubscore(part, score, detailText, isBottleneck) {
+    const prefix = `portProgress${part}`;
+    const track = $(prefix + 'Track');
+    const value = $(prefix + 'Value');
+    const detailId = prefix + 'Detail';
+    const detail = $(detailId);
+    const known = score !== null;
+    const formatted = known ? subscoreNumber.format(score) : '';
+    setProgressValue(track, $(prefix + 'Fill'), score);
+    value.hidden = !known;
+    value.textContent = known ? `${formatted}/100` : '';
+    detail.hidden = !detailText;
+    detail.textContent = detailText;
+    $(prefix + 'Subscore').classList.toggle('is-bottleneck', isBottleneck);
+    if (known) {
+      track.removeAttribute('aria-hidden');
+      track.setAttribute('aria-valuetext', t('home.port.subscore.value', '{score} / 100', { score: formatted }));
+    } else {
+      track.setAttribute('aria-hidden', 'true');
+      track.removeAttribute('aria-valuetext');
+    }
+    if (known && detailText) track.setAttribute('aria-describedby', detailId);
+    else track.removeAttribute('aria-describedby');
+  }
+
+  function renderPortSubscores(progress, ranked) {
+    if (!subscorePanel) return;
+    const leader = progress?.modelVersion === 5 && progress.leaderId
+      ? ranked.find(row => row?.id === progress.leaderId) : null;
+    const reached = leader?.reached ?? progress?.leaderReached;
+    if (!leader || progress.score < 50 || (reached !== 'prison' && reached !== 'stable')) {
+      subscorePanel.hidden = true;
+      subscorePanel.setAttribute('aria-hidden', 'true');
+      return;
+    }
+
+    const validScore = value => Number.isFinite(value) && value >= 0 && value <= 100;
+    const rendering = validScore(leader.factors?.rendering) ? leader.factors.rendering : null;
+    const fps = leader.benchmarkFps;
+    const performance = validScore(leader.factors?.performance) && Number.isFinite(fps) && fps >= 0
+      ? leader.factors.performance : null;
+    const comparable = rendering !== null && performance !== null;
+    const lowerRendering = comparable && rendering < performance;
+    const lowerPerformance = comparable && performance < rendering;
+    renderSubscore('Rendering', rendering, rendering === null ? t('home.port.factor.renderingPending', '画面待核实') : '', lowerRendering);
+    renderSubscore('Performance', performance, performance === null ? t('home.port.factor.benchmarkPending', '参考机待测')
+      : t('home.port.factor.benchmarkFps', '{fps} FPS（原生 1080p）', { fps: subscoreNumber.format(fps) }), lowerPerformance);
+
+    const note = $('portProgressSubscoreNote');
+    note.hidden = !lowerRendering && !lowerPerformance;
+    if (!note.hidden) {
+      const factor = lowerRendering ? t('home.port.factor.renderingScore', '画面分') : t('home.port.factor.performanceScore', '帧率分');
+      note.textContent = t('home.port.subscore.bottleneck', '短板：{factor}', { factor });
+    }
+    subscorePanel.removeAttribute('aria-hidden');
+    subscorePanel.hidden = false;
+  }
+
   function renderPortProgress(dashboardData) {
     const progress = dashboardData?.progress;
     const ranked = Array.isArray(progress?.ranked) ? progress.ranked : [];
@@ -894,12 +955,12 @@ if (typeof module === 'object' && module.exports) {
       ? progress.score : null;
     const hasData = score !== null;
     renderHomeProgress(progress, score);
+    renderPortSubscores(progress, hasData ? ranked : []);
 
     const ppSection = $('gameplay-progress');
     const ppEmpty = $('portProgressEmpty');
     const ppBarWrap = $('portProgressBarWrap');
     const ppStats = $('portProgressStats');
-    const ppHistory = $('portProgressHistory');
     const ppLeader = $('portProgressLeader');
     const ppLeaderLink = $('portProgressLeaderLink');
     const ppScore = $('portProgressScore');
@@ -939,7 +1000,6 @@ if (typeof module === 'object' && module.exports) {
       if (ppEmpty) ppEmpty.hidden = false;
       if (ppBarWrap) ppBarWrap.hidden = true;
       if (ppStats) ppStats.hidden = true;
-      if (ppHistory) ppHistory.hidden = true;
       return;
     }
     if (ppEmpty) ppEmpty.hidden = true;
@@ -1000,26 +1060,6 @@ if (typeof module === 'object' && module.exports) {
         latestPins = [ranked, progress.leaderId, publicProjects,
           dashboardData?.communityBuild ? [dashboardData.communityBuild, ...privateProjects] : privateProjects];
         renderPortProgressAvatars(pinBox, ...latestPins);
-      }
-    }
-
-    // History chart
-    const history = Array.isArray(progress.history) ? progress.history : [];
-    if (ppHistory) {
-      const pts = history.filter(h => typeof h.leader === 'number');
-      if (pts.length >= 2) {
-        ppHistory.hidden = false;
-        const chart = $('portProgressHistoryChart');
-        if (chart) {
-          const W = 1000, H = 70;
-          const max = Math.max(30, ...pts.map(p => p.leader)) * 1.1;
-          const x = i => (i / (pts.length - 1)) * W;
-          const y = v => H - (v / max) * (H - 6) - 3;
-          const d = pts.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)} ${y(p.leader).toFixed(1)}`).join(' ');
-          chart.innerHTML = `<defs><linearGradient id="ppHG" x1="0" x2="1"><stop offset="0" stop-color="#f4a1c0"/><stop offset=".6" stop-color="#ffb4a2"/><stop offset="1" stop-color="#ffd39a"/></linearGradient><linearGradient id="ppHF" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f4a1c0" stop-opacity=".22"/><stop offset="1" stop-color="#f4a1c0" stop-opacity="0"/></linearGradient></defs><path d="${d} L${W} ${H} L0 ${H} Z" fill="url(#ppHF)"/><path d="${d}" fill="none" stroke="url(#ppHG)" stroke-width="3" vector-effect="non-scaling-stroke"/>`;
-        }
-      } else {
-        ppHistory.hidden = true;
       }
     }
   }

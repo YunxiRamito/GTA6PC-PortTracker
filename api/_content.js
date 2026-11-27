@@ -6,6 +6,11 @@ const path = require('node:path');
 
 const ROOT = path.join(__dirname, '..');
 const { createFixtures } = require('../fixtures/demo');
+const {
+  BENCHMARK_FLAGS, BENCHMARK_SEGMENTS, MAX_BENCHMARK_FPS, V5_RENDER_LEVELS, V5_SESSION_OUTCOMES,
+  RENDER_LEVELS, COVERAGE_KEYS, SESSION_OUTCOMES,
+  canonicalSourceUrl, normalizeMilestoneLabel, milestoneLabelForScore, scoreProject,
+} = require('../assets/port-score');
 const { BUILD_TRANSLATION_FIELDS, NEWS_TRANSLATION_FIELDS, copyTranslations, validateContentTranslations } = require('./_content-locale');
 const SECTIONS = ['home', 'countdown', 'roadmap', 'announcements', 'downloads', 'news', 'projects', 'community'];
 const PUBLIC_SECTIONS = ['home', 'countdown', 'roadmap', 'announcements', 'downloads', 'community'];
@@ -95,6 +100,112 @@ function validateContent(content) {
     link(build.sourceUrl, `${loc}.sourceUrl`);
     validatePortProgress(build.portProgress, `${loc}.portProgress`);
   }
+  function shape(value, at, keys) {
+    if (!object(value)) return check(false, at, '需要对象');
+    for (const key of Object.keys(value)) check(keys.includes(key), `${at}.${key}`, '不允许的字段');
+    return true;
+  }
+  const range = (value, min, max, at) => check(Number.isFinite(value) && value >= min && value <= max,
+    at, `需要 ${min}–${max} 的有限数字`);
+
+  function validateQualityEvidence(evidence, at, { legacy = false } = {}) {
+    if (!shape(evidence, at, ['level', 'sourceUrl', 'build', 'setup', 'observedOn'])) return;
+    check(EVIDENCE_LEVELS.has(evidence.level), `${at}.level`, '证据等级无效');
+    if (legacy) link(evidence.sourceUrl, `${at}.sourceUrl`);
+    else check(Boolean(canonicalSourceUrl(evidence.sourceUrl)), `${at}.sourceUrl`, '需要绝对 HTTPS 链接，不含登录凭据');
+    check(validPlainText(evidence.build, 120), `${at}.build`, '需要 1–120 字构建标识');
+    check(validPlainText(evidence.setup, 240), `${at}.setup`, '需要 1–240 字测试配置');
+    check(typeof evidence.observedOn === 'string' && evidence.observedOn.length === 10 && validDate(evidence.observedOn),
+      `${at}.observedOn`, '需要 YYYY-MM-DD 日期');
+  }
+
+  // Archived quality records remain editable without contributing to V5.
+  function validateLegacyQuality(quality, at) {
+    if (!shape(quality, at, ['evidence', 'performance', 'rendering', 'stability', 'completeness'])) return;
+    const { evidence, performance, rendering, stability, completeness } = quality;
+    validateQualityEvidence(evidence, `${at}.evidence`, { legacy: true });
+    if (performance !== undefined && shape(performance, `${at}.performance`, ['fps', 'minutes'])) {
+      range(performance.fps, 0, 240, `${at}.performance.fps`);
+      range(performance.minutes, 1, 120, `${at}.performance.minutes`);
+    }
+    const renderKeys = ['scenes', 'characters', 'vehicles'];
+    if (rendering !== undefined && shape(rendering, `${at}.rendering`, renderKeys)) {
+      for (const key of renderKeys) {
+        const level = rendering[key];
+        if (level !== undefined) check(typeof level === 'string' && Object.hasOwn(RENDER_LEVELS, level),
+          `${at}.rendering.${key}`, '渲染等级无效');
+      }
+    }
+    if (stability !== undefined && shape(stability, `${at}.stability`, ['sessions'])) {
+      items(stability.sessions, `${at}.stability.sessions`, 3, (session, row) => {
+        shape(session, row, ['minutes', 'outcome']);
+        range(session.minutes, session.outcome === 'clean' ? 1 : 0, 240, `${row}.minutes`);
+        check(SESSION_OUTCOMES.includes(session.outcome), `${row}.outcome`, '运行结果无效');
+      }, 1);
+    }
+    if (completeness !== undefined && shape(completeness, `${at}.completeness`, COVERAGE_KEYS)) {
+      for (const key of COVERAGE_KEYS) {
+        if (completeness[key] !== undefined) check(['unknown', 'fail', 'pass'].includes(completeness[key]),
+          `${at}.completeness.${key}`, '覆盖结果无效');
+      }
+    }
+  }
+
+  function validateV5Segments(segments, at, field, validate) {
+    const seen = new Set();
+    items(segments, at, BENCHMARK_SEGMENTS.length, (segment, row) => {
+      shape(segment, row, ['id', field]);
+      check(BENCHMARK_SEGMENTS.includes(segment.id) && !seen.has(segment.id), `${row}.id`, '需要不重复的标准路段标识');
+      seen.add(segment.id);
+      validate(segment[field], `${row}.${field}`);
+    }, BENCHMARK_SEGMENTS.length);
+  }
+
+  function validateV5Quality(quality, at) {
+    if (!shape(quality, at, ['evidence', 'benchmark', 'rendering', 'stability'])) return;
+    const { evidence, benchmark, rendering, stability } = quality;
+    validateQualityEvidence(evidence, `${at}.evidence`);
+    const bench = `${at}.benchmark`;
+    const ids = ['profileId', 'routeId', 'preset'];
+    const sizes = ['width', 'height'];
+    if (benchmark !== undefined && shape(benchmark, bench, [...ids, ...sizes, ...BENCHMARK_FLAGS, 'segments'])) {
+      for (const key of ids) check(validGameplayId(benchmark[key]), `${bench}.${key}`, GAMEPLAY_ID_RULE);
+      for (const key of sizes) check(Number.isInteger(benchmark[key]) && benchmark[key] >= 1 && benchmark[key] <= 16384,
+        `${bench}.${key}`, '需要 1–16384 的整数');
+      for (const key of BENCHMARK_FLAGS) check(typeof benchmark[key] === 'boolean', `${bench}.${key}`, '需要布尔值');
+      // An otherwise valid configuration can be saved while the reference runs are pending.
+      if (benchmark.segments !== undefined) validateV5Segments(benchmark.segments, `${bench}.segments`, 'runs', (runs, row) => {
+        items(runs, row, 3, (run, trial) => {
+          shape(run, trial, ['frames', 'seconds']);
+          range(run.seconds, 10, 600, `${trial}.seconds`);
+          check(Number.isSafeInteger(run.frames) && run.frames >= 0 && run.frames <= run.seconds * MAX_BENCHMARK_FPS,
+            `${trial}.frames`, `需要非负整数，且实际帧率不超过 ${MAX_BENCHMARK_FPS} FPS`);
+        }, 3);
+      });
+    }
+    const render = `${at}.rendering`;
+    if (rendering !== undefined && shape(rendering, render, ['segments'])) {
+      validateV5Segments(rendering.segments, `${render}.segments`, 'severity', (severity, row) => {
+        check(typeof severity === 'string' && Object.hasOwn(V5_RENDER_LEVELS, severity), row, '画面缺陷等级无效');
+      });
+    }
+    const stable = `${at}.stability`;
+    if (stability !== undefined && shape(stability, stable, ['sessions'])) {
+      const sources = new Set();
+      items(stability.sessions, `${stable}.sessions`, 6, (session, row) => {
+        shape(session, row, ['minutes', 'outcome', 'sourceUrl']);
+        range(session.minutes, session.outcome === 'clean' ? 1 : 0, 240, `${row}.minutes`);
+        check(V5_SESSION_OUTCOMES.includes(session.outcome), `${row}.outcome`, '运行结果无效');
+        const source = canonicalSourceUrl(session.sourceUrl);
+        check(Boolean(source), `${row}.sourceUrl`, '需要绝对 HTTPS 链接，不含登录凭据');
+        if (source) {
+          check(!sources.has(source), `${row}.sourceUrl`, '这一来源已录入');
+          sources.add(source);
+        }
+      }, 1);
+    }
+  }
+
   function validatePortProgress(pp, kpp) {
     check(object(pp), kpp, '需要对象');
     if (object(pp)) {
@@ -114,12 +225,16 @@ function validateContent(content) {
       if (pp.gta !== undefined) {
         check(object(pp.gta), `${kpp}.gta`, '需要对象');
         if (object(pp.gta)) {
-          const stages = ['loads', 'boots', 'menu', 'ingame'];
-          const allowedGtaKeys = new Set([...stages, 'fps', 'stability']);
+          const stages = ['loads', 'boots', 'menu', 'ingame', 'prison', 'rendered'];
+          const allowedGtaKeys = new Set([...stages, 'fps', 'stability', 'quality', 'qualityV5', 'milestoneLabel']);
           for (const uk of Object.keys(pp.gta)) check(allowedGtaKeys.has(uk), `${kpp}.gta.${uk}`, '不允许的字段');
           for (const lk of stages)
             if (pp.gta[lk] !== undefined) check(validFraction(pp.gta[lk]), `${kpp}.gta.${lk}`, '需要 0–1 之间的数字');
 
+          if (pp.gta.milestoneLabel !== undefined)
+            check(Boolean(normalizeMilestoneLabel(pp.gta.milestoneLabel)), `${kpp}.gta.milestoneLabel`, '需要 2–8 个汉字、字母或十进制数字');
+          if (pp.gta.quality !== undefined) validateLegacyQuality(pp.gta.quality, `${kpp}.gta.quality`);
+          if (pp.gta.qualityV5 !== undefined) validateV5Quality(pp.gta.qualityV5, `${kpp}.gta.qualityV5`);
           if (pp.gta.fps !== undefined)
             check(typeof pp.gta.fps === 'number' && Number.isFinite(pp.gta.fps) && pp.gta.fps >= 0 && pp.gta.fps <= 240, `${kpp}.gta.fps`, '需要 0–240 之间的数字');
           if (pp.gta.stability !== undefined)
@@ -344,9 +459,47 @@ function withNewsIds(content) {
   return { ...content, home, news };
 }
 
+function withMilestoneLabel(record, select) {
+  const pp = record.portProgress;
+  const current = pp?.gta?.milestoneLabel;
+  if (current === undefined) return record;
+  const label = select(current);
+  if (label && label === current) return record;
+  const gta = { ...pp.gta };
+  if (label) gta.milestoneLabel = label;
+  else delete gta.milestoneLabel;
+  return { ...record, portProgress: { ...pp, gta } };
+}
+
+function mapRoadmapBuilds(roadmap, project) {
+  const { communityBuild, privateRepositories } = roadmap;
+  const legacy = communityBuild && project(communityBuild);
+  const repositories = privateRepositories?.map(project);
+  const privateChanged = repositories?.some((build, index) => build !== privateRepositories[index]);
+  if (legacy === communityBuild && !privateChanged) return roadmap;
+  return { ...roadmap, ...(legacy !== communityBuild && { communityBuild: legacy }),
+    ...(privateChanged && { privateRepositories: repositories }) };
+}
+
+function normalizeMilestoneLabels(content) {
+  const normalize = record => withMilestoneLabel(record, normalizeMilestoneLabel);
+  const projects = content.projects.map(normalize);
+  const roadmap = mapRoadmapBuilds(content.roadmap, normalize);
+  return roadmap === content.roadmap && projects.every((project, index) => project === content.projects[index])
+    ? content : { ...content, projects, roadmap };
+}
+
+function projectMilestoneLabel(record) {
+  return withMilestoneLabel(record, label => {
+    const { score, reached } = scoreProject(record);
+    return milestoneLabelForScore(label, score, reached);
+  });
+}
+
 function projectPublicContent(content) {
   const result = Object.fromEntries(PUBLIC_SECTIONS.map(key => [key, content[key]]));
   result.community = { groups: [] };
+  result.roadmap = mapRoadmapBuilds(content.roadmap, projectMilestoneLabel);
   const { newsIds, autoNewsCount = 2, ...home } = content.home;
   let selected;
   if (newsIds === undefined) {
@@ -424,8 +577,8 @@ function createContentStore({
   }
   const errors = validateContent(content);
   if (errors.length) throw new Error(`无法读取站点内容：${errors.join('；')}`);
-  const normalized = withNewsIds(content);
-  let needsNewsNormalization = normalized !== content;
+  const normalized = normalizeMilestoneLabels(withNewsIds(content));
+  let needsNormalization = normalized !== content;
   content = withCountdownDefault(normalized);
   let etag = revision(content);
   let queue = Promise.resolve();
@@ -446,10 +599,10 @@ function createContentStore({
       const compatible = candidate.roadmap === content.roadmap ? candidate : {
         ...candidate, roadmap: mergeCompatibleRoadmap(content.roadmap, candidate.roadmap),
       };
-      const next = withCountdownDefault(withNewsIds(compatible), content.countdown.enabled);
+      const next = withCountdownDefault(normalizeMilestoneLabels(withNewsIds(compatible)), content.countdown.enabled);
       const nextRevision = revision(next);
       const changed = nextRevision !== etag;
-      if (changed || needsNewsNormalization) {
+      if (changed || needsNormalization) {
         const directory = path.dirname(filePath);
         const temp = path.join(directory, `.content-${randomUUID()}.tmp`);
         const savedAt = changed ? new Date(now()).toISOString() : updatedAt;
@@ -465,7 +618,7 @@ function createContentStore({
         content = next;
         updatedAt = savedAt;
         etag = nextRevision;
-        needsNewsNormalization = false;
+        needsNormalization = false;
       }
       return read(section);
     });
@@ -479,4 +632,4 @@ function revision(content) {
   return '"' + createHash('sha256').update(JSON.stringify(content)).digest('hex') + '"';
 }
 
-module.exports = { createContentStore, validateContent, projectPublicContent, projectPrivateRepositories, ContentError, SECTIONS, PUBLIC_SECTIONS, TYPES, STATUSES };
+module.exports = { createContentStore, validateContent, projectPublicContent, projectPrivateRepositories, projectMilestoneLabel, ContentError, SECTIONS, PUBLIC_SECTIONS, TYPES, STATUSES };

@@ -1,9 +1,11 @@
 'use strict';
 
-const { TYPES, STATUSES, projectPrivateRepositories } = require('./_content');
+const path = require('node:path');
+const { TYPES, STATUSES, projectPrivateRepositories, projectMilestoneLabel } = require('./_content');
 const { BUILD_TRANSLATION_FIELDS, NEWS_TRANSLATION_FIELDS, copyTranslations } = require('./_content-locale');
-const { overall: portOverall } = require('../assets/port-score');
-const { createProgressHistory } = require('./_progress-history');
+const { MODEL_VERSION, MILESTONES, FACTOR_WEIGHTS, QUALITY_WEIGHTS, FPS_CURVE, overall: portOverall } =
+  require('../assets/port-score');
+const { createProgressHistory, todayBeijing } = require('./_progress-history');
 
 const repoKey = repo => repo.toLowerCase();
 const DAY = 24 * 60 * 60_000;
@@ -15,9 +17,28 @@ function releaseTitle(tag) {
   return '发布了新版本' + (version.length <= 30 && /^v?\d+(?:\.\d+){0,3}(?:[-+][\w.-]+)?$/i.test(version) ? ` · ${version}` : '');
 }
 
+function projectPortProgress(projects, history = []) {
+  const { leader, score, top3avg, furthestMilestone, furthestMilestoneLabel, rankedCount, bootsCount, ranked } = portOverall(projects);
+  return {
+    modelVersion: MODEL_VERSION, milestones: MILESTONES, factorWeights: FACTOR_WEIGHTS, qualityWeights: QUALITY_WEIGHTS, fpsCurve: FPS_CURVE,
+    score, leaderId: leader?.project.id ?? null, leaderName: leader?.project.title ?? null,
+    leaderReached: leader?.reached ?? null, leaderReachedLabel: leader?.reachedLabel ?? null,
+    top3avg, furthestMilestone, furthestMilestoneLabel, rankedCount, bootsCount,
+    ranked: ranked.map(({ project, score, reached, reachedLabel, factors, qualityCap, benchmarkFps }) => ({
+      id: project.id, score, reached, reachedLabel, factors, qualityCap, benchmarkFps,
+    })),
+    rank: Object.fromEntries(ranked.map(({ project }, index) => [project.id, index + 1])),
+    history,
+  };
+}
+
 function createDashboard({ fetchGitHub = fetch, now = Date.now, initial = new Map(), liveGitHub = false, token = '', progressHistoryPath = null } = {}) {
   const QUIET_MS = token ? 5 * 60_000 : 65 * 60_000;
-  const progressHistory = progressHistoryPath ? createProgressHistory({ filePath: progressHistoryPath, now }) : null;
+  // Keep older series on disk untouched; scores from different models are not comparable.
+  const historyPath = progressHistoryPath && path.parse(progressHistoryPath);
+  const progressHistory = historyPath ? createProgressHistory({
+    filePath: path.join(historyPath.dir, `${historyPath.name}.v${MODEL_VERSION}${historyPath.ext}`), now,
+  }) : null;
   let lastHistoryKey = '';
   let metadata = new Map(initial);
   let live = [];
@@ -159,33 +180,16 @@ function createDashboard({ fetchGitHub = fetch, now = Date.now, initial = new Ma
       status: 'progress', portProgress: community.portProgress, ...copyTranslations(community, BUILD_TRANSLATION_FIELDS),
     };
     const privateRepositories = projectPrivateRepositories(content.roadmap);
-    const portOv = portOverall([...projects, ...(communityBuild ? [communityBuild] : []), ...privateRepositories]);
-    const portProgress = {
-      score: portOv.score,
-      leaderId: portOv.leader ? portOv.leader.project.id : null,
-      leaderName: portOv.leader ? portOv.leader.project.title : null,
-      leaderReached: portOv.leader ? portOv.leader.reached : null,
-      leaderReachedLabel: portOv.leader ? portOv.leader.reachedLabel : null,
-      top3avg: portOv.top3avg,
-      furthestMilestone: portOv.furthestMilestone,
-      rankedCount: portOv.rankedCount,
-      bootsCount: portOv.bootsCount,
-      ranked: portOv.ranked.map(r => ({ id: r.project.id, score: r.score, reached: r.reached, reachedLabel: r.reachedLabel })),
-      history: progressHistory ? progressHistory.read() : [],
-    };
+    const portProgress = projectPortProgress(
+      [...projects, ...(communityBuild ? [communityBuild] : []), ...privateRepositories], progressHistory?.read());
 
-    // Record history when score changes or first call each day
-    if (progressHistory && portOv.rankedCount > 0) {
-      const histKey = `${portOv.score}:${portOv.leader?.project.id ?? ''}`;
+    // Record the first sample of each Beijing day and refresh it when a tracked value changes.
+    if (progressHistory && portProgress.rankedCount > 0) {
+      const { score, leaderId, top3avg, furthestMilestone, rankedCount } = portProgress;
+      const histKey = JSON.stringify([todayBeijing(now()), score, leaderId, top3avg, furthestMilestone, rankedCount]);
       if (histKey !== lastHistoryKey) {
         lastHistoryKey = histKey;
-        progressHistory.record({
-          leader: portOv.score,
-          leaderId: portOv.leader ? portOv.leader.project.id : '',
-          top3avg: portOv.top3avg,
-          furthest: portOv.furthestMilestone,
-          ranked: portOv.rankedCount,
-        }).catch(() => {});
+        progressHistory.record({ leader: score, leaderId, top3avg, furthest: furthestMilestone, ranked: rankedCount }).catch(() => {});
       }
     }
 
@@ -194,8 +198,9 @@ function createDashboard({ fetchGitHub = fetch, now = Date.now, initial = new Ma
       warning: projects.length ? warning : '', refreshing: Boolean(pending),
       config: { hasToken: liveGitHub && Boolean(token), cacheMinutes: QUIET_MS / 60_000, liveTimeline: liveGitHub && Boolean(token) },
       types: TYPES, statuses: STATUSES, stats: { total: projects.length, totalStars, activeWeek, byType, byStatus },
-      projects, privateRepositories, timeline, progress: portProgress,
-      ...(communityBuild ? { communityBuild } : {}),
+      projects: projects.map(projectMilestoneLabel), privateRepositories: privateRepositories.map(projectMilestoneLabel),
+      timeline, progress: portProgress,
+      ...(communityBuild ? { communityBuild: projectMilestoneLabel(communityBuild) } : {}),
     };
     const external = content.roadmap?.externalProgress;
     if (external && typeof external === 'object' && !Array.isArray(external)) {
@@ -213,4 +218,4 @@ function createDashboard({ fetchGitHub = fetch, now = Date.now, initial = new Ma
   return { get };
 }
 
-module.exports = { createDashboard };
+module.exports = { createDashboard, projectPortProgress };

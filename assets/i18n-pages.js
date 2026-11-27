@@ -62,7 +62,6 @@ window.SiteI18n.register({
   'pages.home.boots': ["Reached startup","起動段階に到達"],
   'pages.home.trackedProjects': ['Tracked projects', '掲載プロジェクト'],
   'pages.home.progressTrack': ['PC port progress', 'PC 移植の進捗バー'],
-  'pages.home.dailyLeaderScore': ['Leading score by day', '首位スコアの推移（日別）'],
   'pages.home.progressPending': ['Progress data is being compiled.', '進捗データを集計中です。'],
   'pages.home.progressFootnote': ['Scores are based on public community records. They are not an official statement of playability.', 'スコアはコミュニティの公開記録に基づくもので、プレイ可能であることを公式に認定するものではありません。'],
   'pages.home.gameplay': ['In-game progress', 'ゲーム内進捗'],

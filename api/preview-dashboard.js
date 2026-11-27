@@ -1,8 +1,8 @@
 'use strict';
 
-const { TYPES, STATUSES, projectPrivateRepositories } = require('./_content');
+const { TYPES, STATUSES, projectPrivateRepositories, projectMilestoneLabel } = require('./_content');
 const { BUILD_TRANSLATION_FIELDS, NEWS_TRANSLATION_FIELDS, copyTranslations } = require('./_content-locale');
-const { overall: portOverall } = require('../assets/port-score');
+const { projectPortProgress } = require('./dashboard');
 const DAY = 24 * 60 * 60 * 1000;
 const repoKey = repo => repo.toLowerCase();
 const newestFirst = (a, b) => Date.parse(b.date) - Date.parse(a.date);
@@ -38,25 +38,15 @@ function projectDashboard(content, { metadata, generatedAt, history }) {
     status: 'progress', portProgress: community.portProgress, ...copyTranslations(community, BUILD_TRANSLATION_FIELDS),
   };
   const privateRepositories = projectPrivateRepositories(content.roadmap);
-  const portOv = portOverall([...projects, ...(communityBuild ? [communityBuild] : []), ...privateRepositories]);
-  const portProgress = {
-    score: portOv.score,
-    leaderId: portOv.leader ? portOv.leader.project.id : null,
-    leaderName: portOv.leader ? portOv.leader.project.title : null,
-    leaderReached: portOv.leader ? portOv.leader.reached : null,
-    leaderReachedLabel: portOv.leader ? portOv.leader.reachedLabel : null,
-    top3avg: portOv.top3avg,
-    furthestMilestone: portOv.furthestMilestone,
-    rankedCount: portOv.rankedCount,
-    bootsCount: portOv.bootsCount,
-    ranked: portOv.ranked.map(r => ({ id: r.project.id, score: r.score, reached: r.reached, reachedLabel: r.reachedLabel })),
-    history,
-  };
+  const portProgress = projectPortProgress(
+    [...projects, ...(communityBuild ? [communityBuild] : []), ...privateRepositories], history);
 
   return {
     generatedAt, stale: false, rateLimited: false, refreshing: false,
     types: TYPES, statuses: STATUSES, stats: { total: projects.length, totalStars, activeWeek, byType, byStatus },
-    projects, privateRepositories, timeline, progress: portProgress,
+    projects: projects.map(projectMilestoneLabel), privateRepositories: privateRepositories.map(projectMilestoneLabel),
+    timeline, progress: portProgress,
+    ...(communityBuild ? { communityBuild: projectMilestoneLabel(communityBuild) } : {}),
   };
 }
 

@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict');
 const { randomBytes } = require('node:crypto');
 const { once } = require('node:events');
+const { setTimeout: delay } = require('node:timers/promises');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const test = require('node:test');
@@ -30,10 +31,13 @@ async function listener(t, server) {
 }
 
 async function runtime() {
-  const directory = await fs.mkdtemp(path.join(workspace, '.test-runtime-'));
+  const root = path.join(await fs.realpath(workspace), '.preview');
+  await fs.mkdir(root, { recursive: true });
+  assert.equal(await fs.realpath(root), root);
+  const directory = await fs.mkdtemp(path.join(root, 'server-test-'));
   const cleanup = async () => {
-    const [root, target] = await Promise.all([fs.realpath(workspace), fs.realpath(directory)]);
-    if (path.dirname(target) !== root || !path.basename(target).startsWith('.test-runtime-')) {
+    const target = await fs.realpath(directory);
+    if (path.dirname(target) !== root || !path.basename(target).startsWith('server-test-')) {
       throw new Error('Unexpected test runtime path');
     }
     await fs.rm(target, { recursive: true, force: true });
@@ -69,8 +73,13 @@ function checkDemoPrivateRepositories(archive) {
   }
   assert.equal(archive.progress.leaderId, 'private-repo-sample-launch');
   assert.equal(archive.progress.leaderName, archive.privateRepositories[0].title);
-  assert.equal(archive.progress.score, 58);
-  assert.deepEqual(archive.progress.ranked.filter(project => project.id.startsWith('private-repo-')).map(project => project.score), [58, 5.5]);
+  assert.equal(archive.progress.modelVersion, 5);
+  assert.equal(archive.progress.score, 88.8);
+  const rows = archive.progress.ranked.filter(project => project.id.startsWith('private-repo-'));
+  assert.deepEqual(rows.map(({ score, factors, benchmarkFps, qualityCap }) => ({ score, factors, benchmarkFps, qualityCap })), [
+    { score: 88.8, factors: { performance: 80, rendering: 85, stability: 50 }, benchmarkFps: 60, qualityCap: 100 },
+    { score: 50, factors: { performance: null, rendering: 100, stability: 50 }, benchmarkFps: null, qualityCap: 50 },
+  ]);
   assert.equal(archive.progress.rankedCount, 5);
   assert.equal(archive.stats.total, 5);
   assert.equal(archive.projects.length, 5);
@@ -141,7 +150,7 @@ test('functional backend stores edits, enforces roles, and serves community rout
   assert.deepEqual(reread.content.privateRepositories, proposal.privateRepositories);
   const changedArchive = await json(await send(origin, '/api/dashboard'), 200);
   assert.deepEqual(changedArchive.privateRepositories.map(project => project.id), ['private-repo-sample-render']);
-  assert.equal(changedArchive.progress.score, 46);
+  assert.equal(changedArchive.progress.score, 50);
   assert.deepEqual(changedArchive.stats, archive.stats);
 
   const username = 'local-member-example';
@@ -214,12 +223,13 @@ test('screenshot preview responds from fixtures and rejects writes', async t => 
 });
 
 test('both entry points localize records and feeds without changing IDs, URLs, or scores', async t => {
+  let siteRanking;
   for (const mode of ['site', 'preview']) {
     await t.test(mode, async t => {
       const { directory, cleanup } = mode === 'site' ? await runtime() : {};
       const fixed = Date.parse('2026-02-01T00:00:00Z');
       const origin = await listener(t, mode === 'site'
-        ? createSiteServer({ runtimeDir: directory, now: () => fixed, liveGitHub: false })
+        ? createSiteServer({ runtimeDir: directory, now: () => fixed, liveGitHub: false, githubToken: '' })
         : createDemoServer({ now: fixed }));
       if (cleanup) t.after(cleanup);
 
@@ -227,6 +237,20 @@ test('both entry points localize records and feeds without changing IDs, URLs, o
       const baseTag = base.headers.get('etag');
       const chinese = (await json(base, 200)).content;
       const archive = await json(await send(origin, '/api/dashboard'), 200);
+      checkDemoPrivateRepositories(archive);
+      const { history, ...ranking } = archive.progress;
+      assert.ok(Array.isArray(history));
+      assert.deepEqual(ranking.factorWeights, { quality: 0.9, stability: 0.1 });
+      assert.deepEqual(ranking.qualityWeights, { bottleneck: 0.8, rendering: 0.15, performance: 0.05 });
+      assert.deepEqual(ranking.fpsCurve, [[0, 0], [5, 10], [10, 25], [15, 35], [30, 60], [60, 80], [90, 100]]);
+      assert.deepEqual(ranking.milestones.map(({ at }) => at), [0, 15, 30, 35, 40, 50, 100]);
+      assert.equal(ranking.rank['private-repo-sample-launch'], 1);
+      if (mode === 'site') siteRanking = ranking;
+      else {
+        assert.deepEqual(ranking, siteRanking);
+        assert.equal(history.at(-1).leader, ranking.score);
+        assert.ok(history.every(row => /^\d{4}-\d{2}-\d{2}$/.test(row.date)));
+      }
       const feed = await (await send(origin, '/rss.xml')).text();
       const itemIds = xml => [...xml.matchAll(/<guid isPermaLink="false">(.*?)<\/guid>/g)].map(([, guid]) => guid);
       const recordIds = rows => rows.map(row => [row.id, row.sourceUrl, row.url, row.repo, row.date]);
@@ -335,7 +359,7 @@ test('private records never trigger GitHub lookups and tie order matches the pub
   const { content, metadata } = createFixtures(Date.now());
   const baseline = createDashboard({ initial: metadata }).get({ ...content, roadmap: {} });
   assert.deepEqual(baseline.privateRepositories, []);
-  assert.equal(baseline.progress.score, 46);
+  assert.equal(baseline.progress.score, 32);
 
   const tied = { ...content.roadmap.privateRepositories[0], portProgress: content.projects[0].portProgress };
   const result = createDashboard({ initial: metadata }).get({ ...content, roadmap: { privateRepositories: [tied] } });
@@ -349,4 +373,114 @@ test('private records never trigger GitHub lookups and tie order matches the pub
   assert.equal(standalone.stats.total, 0);
   assert.equal(standalone.progress.rankedCount, 2);
   assert.equal(standalone.progress.leaderId, 'private-repo-sample-launch');
+});
+
+test('V5 validates private and public evidence without treating assisted or legacy runs as scores', () => {
+  const { content, metadata } = createFixtures(Date.now());
+  const first = content.roadmap.privateRepositories[0];
+  const { qualityV5, ...stages } = first.portProgress.gta;
+  const replaceGta = gta => {
+    const next = structuredClone(content);
+    next.roadmap.privateRepositories[0].portProgress.gta = gta;
+    next.projects[0].portProgress.gta = gta;
+    return next;
+  };
+  assert.deepEqual(validateContent(replaceGta({ ...stages, qualityV5 })), []);
+  const validateChange = edit => {
+    const quality = structuredClone(qualityV5);
+    edit(quality);
+    return validateContent(replaceGta({ ...stages, qualityV5: quality }));
+  };
+  const sourceUrl = 'https://localhost/report';
+  for (const [edit, field] of [
+    [q => { q.evidence.sourceUrl = '#about'; }, 'evidence.sourceUrl'],
+    [q => { q.evidence.observedOn = '2026-02-30'; }, 'evidence.observedOn'],
+    [q => { q.benchmark.frameGeneration = 'false'; }, 'benchmark.frameGeneration'],
+    [q => { q.benchmark.segments[0].runs.pop(); }, 'benchmark.segments[1].runs'],
+    [q => { q.benchmark.segments[1].id = q.benchmark.segments[0].id; }, 'benchmark.segments[2].id'],
+    [q => { q.benchmark.segments[0].runs[0].frames = -1; }, 'benchmark.segments[1].runs[1].frames'],
+    [q => { q.rendering.segments[0].severity = 'unknown'; }, 'rendering.segments[1].severity'],
+    [q => { q.completeness = {}; }, 'completeness'],
+    [q => { q.stability = { sessions: [{ minutes: 0, outcome: 'freeze', sourceUrl: '#about' }] }; }, 'stability.sessions[1].sourceUrl'],
+    [q => { q.stability = { sessions: [
+      { minutes: 30, outcome: 'clean', sourceUrl: sourceUrl + '#one' },
+      { minutes: 0, outcome: 'crash', sourceUrl: 'https://LOCALHOST:443/report#two' },
+    ] }; }, 'stability.sessions[2].sourceUrl'],
+  ]) {
+    const errors = validateChange(edit);
+    assert.ok(errors.some(error => error.includes(`roadmap.privateRepositories[1].portProgress.gta.qualityV5.${field}`)), field);
+    assert.ok(errors.some(error => error.includes(`projects[1].portProgress.gta.qualityV5.${field}`)), field);
+  }
+  const dashboard = createDashboard({ initial: metadata });
+  for (const flag of ['frameGeneration', 'dlss5']) {
+    const assisted = replaceGta({ ...stages, qualityV5: { ...qualityV5, benchmark: { ...qualityV5.benchmark, [flag]: true } } });
+    assert.deepEqual(validateContent(assisted), []);
+    const row = dashboard.get(assisted).progress.ranked.find(row => row.id === 'private-repo-sample-launch');
+    assert.equal(row.score, 50);
+    assert.equal(row.benchmarkFps, null);
+    assert.deepEqual(row.factors, { performance: null, rendering: null, stability: 50 });
+  }
+  const legacy = replaceGta({ ...stages, fps: 90, rendered: 1, stability: 'stable', quality: {
+    evidence: { ...qualityV5.evidence, sourceUrl: '#about' },
+    performance: { fps: 90, minutes: 15 }, rendering: { scenes: 'complete' }, completeness: { interaction: 'pass' },
+  } });
+  assert.deepEqual(validateContent(legacy), []);
+  const archive = dashboard.get(legacy);
+  const legacyRow = archive.progress.ranked.find(row => row.id === 'private-repo-sample-launch');
+  assert.equal(legacyRow.score, 50);
+  assert.deepEqual(legacyRow.factors, { performance: null, rendering: null, stability: 50 });
+  assert.deepEqual(archive.privateRepositories[0].portProgress.gta, legacy.roadmap.privateRepositories[0].portProgress.gta);
+});
+
+test('V5 content write and reload retain benchmark evidence and the existing revision check', async t => {
+  const { directory, cleanup } = await runtime();
+  t.after(cleanup);
+  const options = { filePath: path.join(directory, 'content.json'), now: () => Date.parse('2026-02-01T00:00:00Z') };
+  const store = createContentStore(options);
+  const { content: roadmap, etag } = store.read('roadmap');
+  const gta = roadmap.privateRepositories[0].portProgress.gta;
+  gta.milestoneLabel = '画面已验证';
+  const saved = await store.write(roadmap, etag, 'roadmap');
+  assert.notEqual(saved.etag, etag);
+  await assert.rejects(store.write(roadmap, etag, 'roadmap'), { status: 412 });
+  const reloaded = createContentStore(options).read().content;
+  assert.deepEqual(reloaded.roadmap.privateRepositories[0].portProgress.gta, gta);
+  const { progress } = createDashboard().get(reloaded);
+  assert.equal(progress.leaderReachedLabel, '画面已验证');
+  assert.equal(progress.ranked[0].benchmarkFps, 60);
+});
+
+test('V5 history ignores and preserves prior models and records an unchanged score on a new day', async t => {
+  const { directory, cleanup } = await runtime();
+  t.after(cleanup);
+  const basePath = path.join(directory, 'progress-history.json');
+  const v4Path = path.join(directory, 'progress-history.v4.json');
+  const v5Path = path.join(directory, 'progress-history.v5.json');
+  const archived = JSON.stringify([{ date: '2026-02-01', leader: 99, leaderId: 'archived-example', top3avg: 99, furthest: 'stable', ranked: 1 }]);
+  await Promise.all([fs.writeFile(basePath, archived), fs.writeFile(v4Path, archived)]);
+  let now = Date.parse('2026-02-01T15:59:00Z');
+  const { content, metadata } = createFixtures(now);
+  const options = { initial: metadata, now: () => now, progressHistoryPath: basePath };
+  const dashboard = createDashboard(options);
+  const first = dashboard.get(content).progress;
+  assert.deepEqual(first.history, []);
+  const expected = { date: '2026-02-01', leader: first.score, leaderId: first.leaderId,
+    top3avg: first.top3avg, furthest: first.furthestMilestone, ranked: first.rankedCount };
+  assert.deepEqual(dashboard.get(content).progress.history, [expected]);
+  now = Date.parse('2026-02-01T16:00:00Z');
+  dashboard.get(content);
+  const days = [expected, { ...expected, date: '2026-02-02' }];
+  assert.deepEqual(dashboard.get(content).progress.history, days);
+  let stored;
+  for (let attempt = 0; attempt < 100; attempt++) {
+    try {
+      stored = JSON.parse(await fs.readFile(v5Path, 'utf8'));
+      if (stored.length === days.length) break;
+    } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    await delay(20);
+  }
+  assert.deepEqual(stored, days);
+  assert.deepEqual(createDashboard(options).get({ ...content, projects: [], roadmap: {} }).progress.history, days);
+  assert.equal(await fs.readFile(basePath, 'utf8'), archived);
+  assert.equal(await fs.readFile(v4Path, 'utf8'), archived);
 });

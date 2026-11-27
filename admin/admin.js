@@ -1046,7 +1046,7 @@
       gtaHead.id = id + '-gta-help';
       panel.append(gtaHead);
       const gtaGrid = element('div', 'field-grid');
-      for (const [k, lbl] of [['loads','程序运行'],['boots','首帧画面'],['menu','主菜单'],['ingame','进入游戏']]) {
+      for (const [k, lbl] of [['loads','程序运行（15%）'],['boots','首帧画面（30%）'],['menu','主菜单（35%）'],['ingame','进入游戏（40%）'],['prison','进入监狱序章（50%）']]) {
         const fid = 'field-' + ++fieldId;
         const fwrap = element('div', 'field');
         const flabel = element('label', '', lbl); flabel.htmlFor = fid;
@@ -1093,7 +1093,7 @@
         edited();
       });
       stabWrap.append(stabLabel, stabSel); gtaGrid.append(stabWrap);
-      panel.append(gtaGrid);
+      panel.append(gtaGrid, element('p', 'hint', 'V5 在「原始 JSON」填 portProgress.gta.qualityV5。旧帧率和稳定性字段保留作历史，不计入 V5。'));
 
       // other fields
       panel.append(fields(pp, [
