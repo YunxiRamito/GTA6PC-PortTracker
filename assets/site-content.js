@@ -3,6 +3,20 @@ function homeTranslator(window) {
     (params ? fallback.replace(/\{(\w+)\}/g, (token, name) => Object.hasOwn(params, name) ? params[name] : token) : fallback);
 }
 
+// Shared by the V5 leader panel and project cards. The ranked row supplies the evidence type.
+function formatV5Benchmark(row, number, t) {
+  const { benchmarkFps: lower, benchmarkFpsUpper: upper, benchmarkFpsMethod: method } = row;
+  if (!Number.isFinite(lower) || lower < 0) return '';
+  const fps = number.format(lower);
+  if (method === 'normalized') {
+    if (!Number.isFinite(upper) || upper < lower) return '';
+    return t('home.port.factor.benchmarkEstimate', '{low}–{high} FPS（参考机估算）', { low: fps, high: number.format(upper) });
+  }
+  // Older V5 rows carried only the reference PC measurement.
+  if (method !== 'direct' && !(method == null && upper == null)) return '';
+  return t('home.port.factor.benchmarkFps', '{fps} FPS（原生 1080p 实测）', { fps });
+}
+
 function createGameplayProgressRenderer(document, window) {
   'use strict';
 
@@ -928,15 +942,14 @@ if (typeof module === 'object' && module.exports) {
 
     const validScore = value => Number.isFinite(value) && value >= 0 && value <= 100;
     const rendering = validScore(leader.factors?.rendering) ? leader.factors.rendering : null;
-    const fps = leader.benchmarkFps;
-    const performance = validScore(leader.factors?.performance) && Number.isFinite(fps) && fps >= 0
+    const benchmark = formatV5Benchmark(leader, subscoreNumber, t);
+    const performance = validScore(leader.factors?.performance) && benchmark
       ? leader.factors.performance : null;
     const comparable = rendering !== null && performance !== null;
     const lowerRendering = comparable && rendering < performance;
     const lowerPerformance = comparable && performance < rendering;
     renderSubscore('Rendering', rendering, rendering === null ? t('home.port.factor.renderingPending', '画面待核实') : '', lowerRendering);
-    renderSubscore('Performance', performance, performance === null ? t('home.port.factor.benchmarkPending', '参考机待测')
-      : t('home.port.factor.benchmarkFps', '{fps} FPS（原生 1080p）', { fps: subscoreNumber.format(fps) }), lowerPerformance);
+    renderSubscore('Performance', performance, performance === null ? t('home.port.factor.benchmarkPending', '参考机待测') : benchmark, lowerPerformance);
 
     const note = $('portProgressSubscoreNote');
     note.hidden = !lowerRendering && !lowerPerformance;

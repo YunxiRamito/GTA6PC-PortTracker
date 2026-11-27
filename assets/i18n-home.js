@@ -84,7 +84,8 @@
     'home.port.factor.performanceScore': ['Frame rate', 'FPS スコア'],
     'home.port.factor.renderingPending': ['Visuals unverified', '描画は未確認'],
     'home.port.factor.benchmarkPending': ['Reference PC not yet tested', '基準機は未測定'],
-    'home.port.factor.benchmarkFps': ['{fps} FPS at native 1080p', '{fps} FPS（ネイティブ 1080p）'],
+    'home.port.factor.benchmarkFps': ['{fps} FPS measured at native 1080p', '{fps} FPS（ネイティブ 1080p 実測）'],
+    'home.port.factor.benchmarkEstimate': ['{low}–{high} FPS (normalized estimate)', '{low}–{high} FPS（基準機換算の推定値）'],
     'home.port.subscore.group': ['Leading project subscores', '首位プロジェクトの内訳'],
     'home.port.subscore.bottleneck': ['Lower score: {factor}', '低い方のスコア：{factor}'],
     'home.port.subscore.value': ['{score} out of 100', '100 点中 {score} 点'],
@@ -178,4 +179,6 @@
     'home.downloads.failed': ['Could not load downloads.', 'ダウンロード情報を読み込めませんでした。'],
 
   });
+  // The page dictionary is applied before the home-only words are registered.
+  window.SiteI18n?.apply?.();
 })();

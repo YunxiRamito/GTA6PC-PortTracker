@@ -505,3 +505,209 @@ test('GROUNDWORK weights sum to 1', () => {
   const sum = ps.GROUNDWORK.reduce((s, g) => s + g.weight, 0);
   assert.ok(Math.abs(sum - 1) < 1e-9, `weights sum ${sum}`);
 });
+
+// Normalized V5 regression cases use the public synthetic fixture and reserved example hostname.
+const { BENCHMARK_SEGMENTS, scoreProject, overall } = ps;
+const { validateContent } = require('../api/_content');
+const { createFixtures } = require('../fixtures/demo');
+const { content: seed } = createFixtures(Date.parse('2026-01-12T00:00:00Z'));
+const direct = qualityV5;
+const legacy = legacyQuality;
+const exampleOrigin = 'https:' + '//example.org';
+
+function normalized(routeId = 'prison-v1') {
+  const { segments, ...settings } = direct.benchmark;
+  const ids = routeId === 'prison-v1' ? BENCHMARK_SEGMENTS : ['gameplay'];
+  return { ...settings, routeId, hardware: { cpu: 'Example CPU', gpu: 'Example GPU', ram: '32 GB DDR5' },
+    segments: ids.map(id => ({ id, fps: 90, seconds: 30, sourceUrl: exampleOrigin + '/frames/' + id,
+      ratio: { low: 1, high: 1.1, method: 'paired', sourceUrl: exampleOrigin + '/paired/' + id,
+        basis: 'Same build, route and settings. Comparing the sustained mean of 90 FPS with 90–99 FPS.' },
+    })),
+  };
+}
+
+function quality(routeId) {
+  const q = { evidence: structuredClone(direct.evidence), normalizedBenchmark: normalized(routeId),
+    rendering: structuredClone(direct.rendering), stability: structuredClone(direct.stability) };
+  if (q.normalizedBenchmark.routeId === 'observed-gameplay-v1') q.rendering.segments = [{ id: 'gameplay', severity: 'clean' }];
+  return q;
+}
+
+function project(qualityV5, extra = {}) {
+  return { status: 'progress', portProgress: { gta: { loads: 1, boots: 1, menu: 1, ingame: 1, prison: 1,
+    qualityV5, ...extra,
+  } } };
+}
+
+function errorsFor(project) {
+  return validateContent({ ...seed, projects: [{ ...seed.projects[0], portProgress: project.portProgress }, ...seed.projects.slice(1)] });
+}
+
+function assertUnknownFps(result) {
+  assert.deepEqual([result.benchmarkFps, result.benchmarkFpsUpper, result.benchmarkFpsMethod], [null, null, null]);
+  assert.equal(result.factors.performance, null);
+}
+
+test('normalization duration-weights both bounds, scores the lower bound, and exposes the range for ranked rows', () => {
+  const q = quality();
+  const [a, b, c] = q.normalizedBenchmark.segments;
+  Object.assign(a, { fps: 20, seconds: 10 });
+  Object.assign(a.ratio, { low: 0.5, high: 1 });
+  Object.assign(b, { fps: 40, seconds: 20 });
+  Object.assign(b.ratio, { low: 1, high: 1.5 });
+  Object.assign(c, { fps: 60, seconds: 30 });
+  Object.assign(c.ratio, { low: 0.5, high: 2 });
+  q.normalizedBenchmark.segments.reverse();
+  const p = project(q, { quality: legacy, fps: 100 });
+  const original = structuredClone(p);
+  const computed = scoreProject(p);
+  assert.deepEqual(errorsFor(p), []);
+  assert.deepEqual([computed.benchmarkFps, computed.benchmarkFpsUpper, computed.benchmarkFpsMethod], [30, 5000 / 60, 'normalized']);
+  assert.deepEqual(computed.factors, { rendering: 100, performance: 60, stability: 100 });
+  assert.equal(computed.qualityCap, 95);
+  assert.equal(computed.score, 84.7);
+  assert.deepEqual(overall([p]).leader, { ...computed, project: p });
+  assert.deepEqual(overall([p]).ranked, [{ ...computed, project: p }]);
+  assert.deepEqual(p, original);
+});
+
+test('confidence caps compose with the evidence cap, and even perfect normalized measurements cannot reach stable', () => {
+  for (const [route, ratioMethod, level, cap] of [
+    ['prison-v1', 'paired', 'reproduced', 95],
+    ['prison-v1', 'paired', 'self-reported', 75],
+    ['prison-v1', 'gpu-bound', 'reproduced', 85],
+    ['prison-v1', 'cpu-bound', 'demonstrated', 85],
+    ['observed-gameplay-v1', 'paired', 'reproduced', 85],
+    ['observed-gameplay-v1', 'cpu-bound', 'self-reported', 75],
+  ]) {
+    const q = quality(route);
+    q.evidence.level = level;
+    q.normalizedBenchmark.segments.at(-1).ratio.method = ratioMethod;
+    const p = project(q);
+    assert.deepEqual(errorsFor(p), []);
+    const r = scoreProject(p);
+    assert.deepEqual([r.score, r.qualityCap, r.reached], [cap, cap, 'prison']);
+    assert.deepEqual(r.factors, { rendering: 100, performance: 100, stability: 100 });
+  }
+});
+
+test('verified standard-route visuals can stand alone, while observed gameplay needs evidence of matching coverage', () => {
+  const standard = quality();
+  delete standard.normalizedBenchmark.segments;
+  assert.deepEqual(errorsFor(project(standard)), []);
+  const visuals = scoreProject(project(standard));
+  assertUnknownFps(visuals);
+  assert.equal(visuals.factors.rendering, 100);
+  assert.equal(visuals.score, 50);
+  standard.normalizedBenchmark.upscaling = true;
+  assert.equal(scoreProject(project(standard)).factors.rendering, null);
+
+  const observed = quality('observed-gameplay-v1');
+  observed.rendering.segments[0].severity = 'localized';
+  assert.deepEqual(errorsFor(project(observed)), []);
+  assert.equal(scoreProject(project(observed)).factors.rendering, 70);
+  observed.rendering = structuredClone(direct.rendering);
+  assert.equal(scoreProject(project(observed)).factors.rendering, null);
+  assert.equal(scoreProject(project(observed)).factors.performance, 100);
+  assert.ok(errorsFor(project(observed)).some(error => error.includes('.rendering.segments')));
+  observed.rendering = { segments: [{ id: 'gameplay', severity: 'clean' }] };
+  delete observed.normalizedBenchmark.segments;
+  assert.ok(errorsFor(project(observed)).some(error => error.includes('.normalizedBenchmark.segments')));
+  const missingCoverage = scoreProject(project(observed));
+  assertUnknownFps(missingCoverage);
+  assert.equal(missingCoverage.factors.rendering, null);
+});
+
+test('regular native-counter samples can supply representative FPS and actual same-run gameplay coverage', () => {
+  const q = quality('observed-gameplay-v1');
+  const segment = q.normalizedBenchmark.segments[0];
+  // Seven native-counter readings at 20 s intervals span 120 s. Keep the slow section.
+  const nativeCounterFps = [42, 40, 23, 36, 40, 45, 48];
+  const median = nativeCounterFps.slice().sort((a, b) => a - b)[3];
+  Object.assign(segment, { fps: median, seconds: 120, sourceUrl: exampleOrigin + '/frames/gameplay-counter-log' });
+  Object.assign(segment.ratio, { low: 1.25, high: 1.5, basis: 'Native rendered-FPS counter logged every 20 s across the same 120 s route and build, including the slow section. Paired same-settings runs support 40 vs 50–60 FPS.' });
+  const p = project(q);
+  assert.deepEqual(errorsFor(p), []);
+  const r = scoreProject(p);
+  assert.deepEqual([r.benchmarkFps, r.benchmarkFpsUpper, r.benchmarkFpsMethod], [50, 60, 'normalized']);
+  assert.equal(segment.fps, 40);
+  assert.equal(segment.seconds, 120);
+});
+
+test('zero and the inclusive measurement boundaries are usable, but the prison and evidence gates still apply', () => {
+  const q = quality('observed-gameplay-v1');
+  const segment = q.normalizedBenchmark.segments[0];
+  Object.assign(segment, { fps: 0, seconds: 10 });
+  Object.assign(segment.ratio, { low: 0.05, high: 10 });
+  assert.deepEqual(errorsFor(project(q)), []);
+  const r = scoreProject(project(q));
+  assert.deepEqual([r.benchmarkFps, r.benchmarkFpsUpper, r.benchmarkFpsMethod, r.factors.performance], [0, 0, 'normalized', 0]);
+  Object.assign(segment, { fps: 1000, seconds: 600 });
+  Object.assign(segment.ratio, { low: 0.05, high: 1 });
+  assert.deepEqual(errorsFor(project(q)), []);
+  assert.equal(scoreProject(project(q)).benchmarkFpsUpper, 1000);
+  assertUnknownFps(scoreProject(project(q, { prison: 0.99 })));
+  q.evidence.level = 'unverified';
+  assertUnknownFps(scoreProject(project(q)));
+});
+
+test('direct and normalized are mutually exclusive and an archived V4 sample cannot replace either', () => {
+  const q = { ...quality(), benchmark: structuredClone(direct.benchmark) };
+  assert.ok(errorsFor(project(q)).some(error => error.includes('.normalizedBenchmark')));
+  const both = scoreProject(project(q));
+  assertUnknownFps(both);
+  assert.equal(both.factors.rendering, null);
+  assert.equal(both.score, 50);
+  const archived = scoreProject(project(undefined, { quality: legacy, rendered: 1, fps: 100 }));
+  assertUnknownFps(archived);
+  assert.equal(archived.score, 50);
+});
+
+test('normalization rejects ambiguous settings, malformed coverage, unsafe URLs and unbounded estimates', () => {
+  for (const [field, mutate, route] of [
+    ['profileId', b => { b.profileId = 'older-pc'; }],
+    ['routeId', b => { b.routeId = 'unmeasured'; }],
+    ['preset', b => { b.preset = 'ultra'; }],
+    ['width', b => { b.width = '1920'; }],
+    ['height', b => { b.height = 720; }],
+    ['dynamicResolution', b => { delete b.dynamicResolution; }],
+    ['upscaling', b => { b.upscaling = 'false'; }],
+    ['frameGeneration', b => { b.frameGeneration = true; }],
+    ['dlss5', b => { b.dlss5 = 0; }],
+    ['hardware', b => { b.hardware = []; }],
+    ['hardware.gpu', b => { delete b.hardware.gpu; }],
+    ['hardware.ram', b => { b.hardware.ram = ' '; }],
+    ['hardware.details', b => { b.hardware.details = 'bad\u0000text'; }],
+    ['segments', b => { b.segments.pop(); }],
+    ['segments', b => { b.segments.push(b.segments[0]); }, 'observed-gameplay-v1'],
+    ['segments[2].id', b => { b.segments[1].id = b.segments[0].id; }],
+    ['segments[1].id', b => { b.segments[0].id = 'interior'; }, 'observed-gameplay-v1'],
+    ['segments[1]', b => { b.segments[0].normalizedFps = 100; }],
+    ['segments[1].fps', b => { b.segments[0].fps = '90'; }],
+    ['segments[1].fps', b => { b.segments[0].fps = Infinity; }],
+    ['segments[1].fps', b => { b.segments[0].fps = 1000.001; }],
+    ['segments[1].seconds', b => { b.segments[0].seconds = 9.99; }],
+    ['segments[1].seconds', b => { b.segments[0].seconds = 601; }],
+    ['segments[1].sourceUrl', b => { delete b.segments[0].sourceUrl; }, 'observed-gameplay-v1'],
+    ['segments[1].sourceUrl', b => { b.segments[0].sourceUrl = 'http:' + '//example.org/frames'; }],
+    ['segments[1].sourceUrl', b => { b.segments[0].sourceUrl = 'https:///example.org/frames'; }],
+    ['segments[1].sourceUrl', b => { b.segments[0].sourceUrl = 'https://127.0.0.1/frames'; }],
+    ['segments[1].ratio.sourceUrl', b => { const url = new URL(exampleOrigin); url.username = 'user'; url.password = 'pass'; b.segments[0].ratio.sourceUrl = url.href; }],
+    ['segments[1].ratio.sourceUrl', b => { b.segments[0].ratio.sourceUrl = 'https://[::1]/'; }],
+    ['segments[1].ratio.low', b => { b.segments[0].ratio.low = 0.01; }],
+    ['segments[1].ratio.high', b => { b.segments[0].ratio.high = 0.5; }],
+    ['segments[1].ratio.high', b => { b.segments[0].ratio.high = 10.01; }],
+    ['segments[1].ratio.high', b => { b.segments[0].fps = 600; b.segments[0].ratio.high = 2; }],
+    ['segments[1].ratio.method', b => { b.segments[0].ratio.method = 'synthetic'; }],
+    ['segments[1].ratio.basis', b => { b.segments[0].ratio.basis = ' '; }],
+  ]) {
+    const q = quality(route);
+    mutate(q.normalizedBenchmark);
+    const p = project(q);
+    const errors = errorsFor(p);
+    assert.ok(errors.some(error => error.includes('.normalizedBenchmark.' + field + '：') || error.includes('.normalizedBenchmark.' + field + ':')), JSON.stringify({ field, errors }));
+    const result = scoreProject(p);
+    assertUnknownFps(result);
+    assert.equal(result.score, 50, field);
+  }
+});

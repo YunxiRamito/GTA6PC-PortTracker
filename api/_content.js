@@ -8,6 +8,7 @@ const ROOT = path.join(__dirname, '..');
 const { createFixtures } = require('../fixtures/demo');
 const {
   BENCHMARK_FLAGS, BENCHMARK_SEGMENTS, MAX_BENCHMARK_FPS, V5_RENDER_LEVELS, V5_SESSION_OUTCOMES,
+  normalizedRouteSegments, normalizedBenchmarkError,
   RENDER_LEVELS, COVERAGE_KEYS, SESSION_OUTCOMES,
   canonicalSourceUrl, normalizeMilestoneLabel, milestoneLabelForScore, scoreProject,
 } = require('../assets/port-score');
@@ -151,19 +152,25 @@ function validateContent(content) {
     }
   }
 
-  function validateV5Segments(segments, at, field, validate) {
+  function validateV5Segments(segments, at, field, validate, route = BENCHMARK_SEGMENTS) {
     const seen = new Set();
-    items(segments, at, BENCHMARK_SEGMENTS.length, (segment, row) => {
+    items(segments, at, route.length, (segment, row) => {
       shape(segment, row, ['id', field]);
-      check(BENCHMARK_SEGMENTS.includes(segment.id) && !seen.has(segment.id), `${row}.id`, '需要不重复的标准路段标识');
+      check(route.includes(segment.id) && !seen.has(segment.id), `${row}.id`, '需要不重复的标准路段标识');
       seen.add(segment.id);
       validate(segment[field], `${row}.${field}`);
-    }, BENCHMARK_SEGMENTS.length);
+    }, route.length);
   }
 
   function validateV5Quality(quality, at) {
-    if (!shape(quality, at, ['evidence', 'benchmark', 'rendering', 'stability'])) return;
-    const { evidence, benchmark, rendering, stability } = quality;
+    if (!shape(quality, at, ['evidence', 'benchmark', 'normalizedBenchmark', 'rendering', 'stability'])) return;
+    const { evidence, benchmark, normalizedBenchmark, rendering, stability } = quality;
+    if (Object.hasOwn(quality, 'normalizedBenchmark')) {
+      const normalized = `${at}.normalizedBenchmark`;
+      check(!Object.hasOwn(quality, 'benchmark'), normalized, '不能和参考机直测同时录入');
+      const error = normalizedBenchmarkError(normalizedBenchmark);
+      if (error !== null) check(false, normalized + error, '异机归一化取证字段无效');
+    }
     validateQualityEvidence(evidence, `${at}.evidence`);
     const bench = `${at}.benchmark`;
     const ids = ['profileId', 'routeId', 'preset'];
@@ -187,7 +194,7 @@ function validateContent(content) {
     if (rendering !== undefined && shape(rendering, render, ['segments'])) {
       validateV5Segments(rendering.segments, `${render}.segments`, 'severity', (severity, row) => {
         check(typeof severity === 'string' && Object.hasOwn(V5_RENDER_LEVELS, severity), row, '画面缺陷等级无效');
-      });
+      }, normalizedRouteSegments(normalizedBenchmark?.routeId) ?? BENCHMARK_SEGMENTS);
     }
     const stable = `${at}.stability`;
     if (stability !== undefined && shape(stability, stable, ['sessions'])) {

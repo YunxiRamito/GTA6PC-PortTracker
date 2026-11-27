@@ -139,3 +139,26 @@ test('unsupported browsers and unavailable translation models keep the original 
   assert.equal(failed.original.textContent, '你好');
   assert.equal(failed.original.nextElementSibling, undefined);
 });
+
+
+test('V5 benchmark display distinguishes measurements, estimates, zero and missing data in all public languages', () => {
+  const vm = require('node:vm');
+  const dictionaries = {};
+  const context = { module: { exports: {} }, window: { SiteI18n: { register: words => Object.assign(dictionaries, words), apply() {} } } };
+  vm.createContext(context);
+  vm.runInContext(source('assets/site-content.js'), context);
+  vm.runInContext(source('assets/i18n-home.js'), context);
+  const format = context.formatV5Benchmark;
+  for (const [locale, index, measured, estimate] of [
+    ['zh-CN', null, '实测', '参考机估算'], ['en', 0, 'measured', 'normalized estimate'], ['ja', 1, '実測', '推定値'],
+  ]) {
+    const t = (key, fallback, params) => (index === null ? fallback : dictionaries[key][index]).replace(/\{(\w+)\}/g, (_, name) => params[name]);
+    const number = new Intl.NumberFormat(locale, { maximumFractionDigits: 1 });
+    assert.ok(format({ benchmarkFps: 60, benchmarkFpsMethod: 'direct', benchmarkFpsUpper: null }, number, t).includes(measured));
+    const estimated = format({ benchmarkFps: 0, benchmarkFpsMethod: 'normalized', benchmarkFpsUpper: 60 }, number, t);
+    assert.ok(estimated.includes('0–60 FPS') && estimated.includes(estimate) && !estimated.includes(measured));
+    assert.equal(format({ benchmarkFps: 60, benchmarkFpsMethod: 'normalized' }, number, t), '');
+    assert.equal(format({ benchmarkFps: null, benchmarkFpsMethod: null }, number, t), '');
+    assert.ok(format({ benchmarkFps: 60 }, number, t).includes(measured));
+  }
+});

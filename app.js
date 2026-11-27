@@ -482,10 +482,13 @@
       var outOf100 = function (value, pending) {
         return typeof value === 'number' && Number.isFinite(value) ? number.format(value) + '/100' : pending;
       };
+      var benchmark = formatV5Benchmark(scored, number, t);
+      var performance = verified.performance;
+      var performanceText = benchmark && Number.isFinite(performance) && performance >= 0 && performance <= 100
+        ? outOf100(performance) + ' · ' + benchmark : t('home.port.factor.benchmarkPending', '参考机待测');
       return cardFactorRows([
         [t('home.port.factor.renderingScore', '画面分'), outOf100(verified.rendering, t('home.port.factor.renderingPending', '画面待核实'))],
-        [t('home.port.factor.performanceScore', '帧率分'), outOf100(verified.performance, t('home.port.factor.benchmarkPending', '参考机待测')) +
-          (Number.isFinite(scored.benchmarkFps) ? ' · ' + number.format(scored.benchmarkFps) + ' FPS' : '')],
+        [t('home.port.factor.performanceScore', '帧率分'), performanceText],
         [t('home.port.factor.stability', '稳定性'), outOf100(verified.stability, t('home.status.unknown', '待核实'))],
       ]);
     }

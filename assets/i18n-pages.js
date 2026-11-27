@@ -64,6 +64,7 @@ window.SiteI18n.register({
   'pages.home.progressTrack': ['PC port progress', 'PC 移植の進捗バー'],
   'pages.home.progressPending': ['Progress data is being compiled.', '進捗データを集計中です。'],
   'pages.home.progressFootnote': ['Scores are based on public community records. They are not an official statement of playability.', 'スコアはコミュニティの公開記録に基づくもので、プレイ可能であることを公式に認定するものではありません。'],
+  'pages.home.normalizedBenchmark': ['Native FPS from another PC can count toward the score using verifiable sources and ratios. The lower end of the estimated reference PC range determines the frame rate score. Paired measurements across the fixed route cap the overall score at 95%. CPU or GPU proxies and observed gameplay cap it at 85%. Only direct measurements on the reference PC can qualify for 100%.', '別の PC で実測したネイティブ FPS は、検証可能な出典と比率があれば基準機に換算して採点できます。フレームレートの採点には推定範囲の下限を使います。固定ルート全体に両機の比較実測があれば総合スコアの上限は 95% です。CPU・GPU の性能比較や実プレイ映像を使う場合は 85% です。100% に届くには基準機での実測が必要です。'],
   'pages.home.gameplay': ['In-game progress', 'ゲーム内進捗'],
   'pages.home.verifiedStage': ['Furthest verified stage: ', '確認できた最も進んだ段階：'],
   'pages.home.gameplayStages': ['In-game stages', 'ゲーム内の進行段階'],

@@ -80,6 +80,9 @@ function checkDemoPrivateRepositories(archive) {
     { score: 88.8, factors: { performance: 80, rendering: 85, stability: 50 }, benchmarkFps: 60, qualityCap: 100 },
     { score: 50, factors: { performance: null, rendering: 100, stability: 50 }, benchmarkFps: null, qualityCap: 50 },
   ]);
+  assert.deepEqual(rows.map(({ benchmarkFpsMethod, benchmarkFpsUpper }) => [benchmarkFpsMethod, benchmarkFpsUpper]), [
+    ['direct', null], [null, null],
+  ]);
   assert.equal(archive.progress.rankedCount, 5);
   assert.equal(archive.stats.total, 5);
   assert.equal(archive.projects.length, 5);
@@ -448,6 +451,38 @@ test('V5 content write and reload retain benchmark evidence and the existing rev
   const { progress } = createDashboard().get(reloaded);
   assert.equal(progress.leaderReachedLabel, '画面已验证');
   assert.equal(progress.ranked[0].benchmarkFps, 60);
+});
+
+test('V5 normalized evidence survives storage and both dashboard projections', async t => {
+  const { directory, cleanup } = await runtime();
+  t.after(cleanup);
+  const now = Date.parse('2026-02-01T00:00:00Z');
+  const options = { filePath: path.join(directory, 'content.json'), now: () => now };
+  const store = createContentStore(options);
+  const { content: roadmap, etag } = store.read('roadmap');
+  const quality = roadmap.privateRepositories[0].portProgress.gta.qualityV5;
+  const { segments, ...settings } = quality.benchmark;
+  delete quality.benchmark;
+  // Reserved synthetic evidence URLs; neither projection performs a fetch.
+  const exampleOrigin = 'https:' + '//example.org';
+  quality.normalizedBenchmark = { ...settings, hardware: { cpu: 'Sample CPU', gpu: 'Sample GPU', ram: '16 GB' },
+    segments: segments.map(({ id }) => ({ id, fps: 60, seconds: 20, sourceUrl: exampleOrigin + '/fps/' + id,
+      ratio: { low: 0.5, high: 1, method: 'paired', sourceUrl: exampleOrigin + '/comparison/' + id, basis: 'Synthetic paired comparison' },
+    })),
+  };
+  const saved = await store.write(roadmap, etag, 'roadmap');
+  assert.notEqual(saved.etag, etag);
+  const reloaded = createContentStore(options).read().content;
+  assert.deepEqual(reloaded.roadmap.privateRepositories[0].portProgress.gta.qualityV5, quality);
+  const { projectDashboard } = require('../api/preview-dashboard');
+  const fixture = createFixtures(now);
+  const live = createDashboard({ now: () => now }).get(reloaded);
+  const preview = projectDashboard(reloaded, { metadata: fixture.metadata, generatedAt: new Date(now).toISOString(), history: fixture.history });
+  for (const archive of [live, preview]) {
+    const row = archive.progress.ranked.find(row => row.id === 'private-repo-sample-launch');
+    assert.deepEqual([row.benchmarkFpsMethod, row.benchmarkFps, row.benchmarkFpsUpper, row.factors.performance], ['normalized', 30, 60, 60]);
+  }
+  assert.deepEqual(live.progress.ranked, preview.progress.ranked);
 });
 
 test('V5 history ignores and preserves prior models and records an unchanged score on a new day', async t => {

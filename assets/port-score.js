@@ -33,6 +33,8 @@
   var BENCHMARK_SEGMENTS = Object.freeze(['interior', 'corridor', 'yard']);
   var BENCHMARK_FLAGS = Object.freeze(['dynamicResolution', 'upscaling', 'frameGeneration', 'dlss5']);
   var BENCHMARK_FIELDS = ['profileId', 'routeId', 'preset', 'width', 'height'].concat(BENCHMARK_FLAGS);
+  var OBSERVED_GAMEPLAY_SEGMENTS = Object.freeze(['gameplay']);
+  var RATIO_METHODS = Object.freeze(['paired', 'gpu-bound', 'cpu-bound']);
   var V5_RENDER_LEVELS = Object.freeze({
     critical: Object.freeze({ score: 10, cap: 30 }),
     major: Object.freeze({ score: 40, cap: 55 }),
@@ -127,21 +129,27 @@
     return cap;
   }
 
-  function matchesBenchmark(benchmark) {
-    return hasShape(benchmark, BENCHMARK_FIELDS, ['segments']) && benchmark.profileId === BENCHMARK_PROFILE.id &&
-      benchmark.routeId === BENCHMARK_PROFILE.routeId && benchmark.preset === BENCHMARK_PROFILE.preset &&
-      benchmark.width === BENCHMARK_PROFILE.width && benchmark.height === BENCHMARK_PROFILE.height &&
-      BENCHMARK_FLAGS.every(function (key) { return benchmark[key] === false; });
+  function benchmarkSettingsMismatch(benchmark) {
+    return BENCHMARK_FIELDS.find(function (key) {
+      if (key === 'routeId') return false;
+      var expected = BENCHMARK_FLAGS.includes(key) ? false : BENCHMARK_PROFILE[key === 'profileId' ? 'id' : key];
+      return ownValue(benchmark, key) !== expected;
+    });
   }
 
-  function segmentMeasures(segments, measure) {
-    if (!Array.isArray(segments) || segments.length !== BENCHMARK_SEGMENTS.length) return null;
+  function matchesBenchmark(benchmark) {
+    return hasShape(benchmark, BENCHMARK_FIELDS, ['segments']) &&
+      benchmark.routeId === BENCHMARK_PROFILE.routeId && !benchmarkSettingsMismatch(benchmark);
+  }
+
+  function segmentMeasures(segments, measure, route) {
+    if (!Array.isArray(segments) || segments.length !== route.length) return null;
     var results = [];
     for (var i = 0; i < segments.length; i++) {
       var segment = ownValue(segments, i);
       var result = measure(segment);
       if (result === null) return null;
-      var index = BENCHMARK_SEGMENTS.indexOf(segment.id);
+      var index = route.indexOf(segment.id);
       if (index === -1 || ownValue(results, index) !== undefined) return null;
       results[index] = result;
     }
@@ -167,18 +175,115 @@
   }
 
   function benchmarkFpsFor(segments) {
-    var results = segmentMeasures(segments, measurePerformanceSegment);
-    if (results === null) return null;
+    var results = segmentMeasures(segments, measurePerformanceSegment, BENCHMARK_SEGMENTS);
+    return results === null ? null : weightedFpsFor(results, 'fps');
+  }
+
+  function weightedFpsFor(results, key) {
     var weightedFps = 0, seconds = 0, min = MAX_BENCHMARK_FPS, max = 0;
     for (var i = 0; i < results.length; i++) {
       var segment = results[i];
-      weightedFps += segment.fps * segment.seconds;
+      var fps = segment[key];
+      weightedFps += fps * segment.seconds;
       seconds += segment.seconds;
-      min = Math.min(min, segment.fps);
-      max = Math.max(max, segment.fps);
+      min = Math.min(min, fps);
+      max = Math.max(max, fps);
     }
     // Keep floating point error from moving the average outside the measured range.
     return Math.min(max, Math.max(min, weightedFps / seconds));
+  }
+
+  function publicEvidenceUrl(value) {
+    if (typeof value !== 'string' || !/^https:\/\/[^/?#]/i.test(value)) return false;
+    var source = canonicalSourceUrl(value);
+    if (!source) return false;
+    var host = new URL(source).hostname.replace(/\.$/, '');
+    // Reject private literals and local names without fetching or resolving the URL.
+    if (host.startsWith('[')) return /^\[[23][0-9a-f]{3}:/i.test(host) && !/^\[2001:db8:/i.test(host);
+    if (/^\d+(?:\.\d+){3}$/.test(host)) {
+      var octets = host.split('.').map(Number);
+      var first = octets[0], second = octets[1], third = octets[2];
+      if (first === 0 || first === 10 || first === 127 || first >= 224) return false;
+      if (first === 100) return second < 64 || second > 127;
+      if (first === 169) return second !== 254;
+      if (first === 172) return second < 16 || second > 31;
+      if (first === 192) return second !== 168 && !(second === 0 && (third === 0 || third === 2));
+      if (first === 198) return second !== 18 && second !== 19 && !(second === 51 && third === 100);
+      if (first === 203) return second !== 0 || third !== 113;
+      return true;
+    }
+    return host.includes('.') && !/\.(?:localhost|local|internal|home\.arpa|invalid|test|example)$/i.test(host);
+  }
+
+  function normalizedRouteSegments(routeId) {
+    if (routeId === BENCHMARK_PROFILE.routeId) return BENCHMARK_SEGMENTS;
+    if (routeId === 'observed-gameplay-v1') return OBSERVED_GAMEPLAY_SEGMENTS;
+    return null;
+  }
+
+  function normalizedSettingsError(benchmark) {
+    if (!hasShape(benchmark, [], BENCHMARK_FIELDS.concat('hardware', 'segments'))) return '';
+    var mismatch = benchmarkSettingsMismatch(benchmark);
+    if (mismatch) return '.' + mismatch;
+    if (!normalizedRouteSegments(ownValue(benchmark, 'routeId'))) return '.routeId';
+    var hardware = ownValue(benchmark, 'hardware');
+    if (!hasShape(hardware, [], ['cpu', 'gpu', 'ram', 'details'])) return '.hardware';
+    for (var key of ['cpu', 'gpu', 'ram']) {
+      if (!validPlainText(ownValue(hardware, key), 120)) return '.hardware.' + key;
+    }
+    if (Object.prototype.hasOwnProperty.call(hardware, 'details') && !validPlainText(hardware.details, 240)) {
+      return '.hardware.details';
+    }
+    return null;
+  }
+
+  function normalizedSegmentError(segment) {
+    if (!hasShape(segment, ['id'], ['fps', 'seconds', 'sourceUrl', 'ratio'])) return '';
+    var fps = ownValue(segment, 'fps'), seconds = ownValue(segment, 'seconds');
+    if (!Number.isFinite(fps) || fps < 0 || fps > MAX_BENCHMARK_FPS) return '.fps';
+    if (!Number.isFinite(seconds) || seconds < 10 || seconds > 600) return '.seconds';
+    if (!publicEvidenceUrl(ownValue(segment, 'sourceUrl'))) return '.sourceUrl';
+    var ratio = ownValue(segment, 'ratio');
+    if (!hasShape(ratio, [], ['low', 'high', 'method', 'sourceUrl', 'basis'])) return '.ratio';
+    var low = ownValue(ratio, 'low'), high = ownValue(ratio, 'high');
+    if (!Number.isFinite(low) || low < 0.05 || low > 10) return '.ratio.low';
+    if (!Number.isFinite(high) || high < low || high > 10 || fps * high > MAX_BENCHMARK_FPS) return '.ratio.high';
+    if (!RATIO_METHODS.includes(ownValue(ratio, 'method'))) return '.ratio.method';
+    if (!publicEvidenceUrl(ownValue(ratio, 'sourceUrl'))) return '.ratio.sourceUrl';
+    if (!validPlainText(ownValue(ratio, 'basis'), 800)) return '.ratio.basis';
+    return null;
+  }
+
+  function inspectNormalizedBenchmark(benchmark) {
+    var error = normalizedSettingsError(benchmark);
+    if (error !== null) return { error: error, route: null, measurements: null };
+    var route = normalizedRouteSegments(benchmark.routeId);
+    var segments = ownValue(benchmark, 'segments');
+    // Verified full-route visuals can stand alone when no timing sample is available.
+    if (!Object.prototype.hasOwnProperty.call(benchmark, 'segments') && route === BENCHMARK_SEGMENTS) {
+      return { error: null, route: route, measurements: null };
+    }
+    if (!Array.isArray(segments) || segments.length !== route.length) {
+      return { error: '.segments', route: route, measurements: null };
+    }
+    var measurements = [];
+    for (var i = 0; i < segments.length; i++) {
+      var segment = ownValue(segments, i);
+      var at = '.segments[' + (i + 1) + ']';
+      error = normalizedSegmentError(segment);
+      if (error !== null) return { error: at + error, route: route, measurements: null };
+      var index = route.indexOf(segment.id);
+      if (index === -1 || ownValue(measurements, index) !== undefined) {
+        return { error: at + '.id', route: route, measurements: null };
+      }
+      measurements[index] = {
+        low: segment.fps * segment.ratio.low,
+        high: segment.fps * segment.ratio.high,
+        seconds: segment.seconds,
+        method: segment.ratio.method,
+      };
+    }
+    return { error: null, route: route, measurements: measurements };
   }
 
   function measureRenderingSegment(segment) {
@@ -186,9 +291,9 @@
     return ownValue(V5_RENDER_LEVELS, segment.severity) || null;
   }
 
-  function renderingScore(rendering) {
+  function renderingScore(rendering, route) {
     if (!hasShape(rendering, ['segments'])) return null;
-    var results = segmentMeasures(rendering.segments, measureRenderingSegment);
+    var results = segmentMeasures(rendering.segments, measureRenderingSegment, route);
     if (results === null) return null;
     var sum = 0, cap = 100;
     for (var i = 0; i < results.length; i++) {
@@ -220,17 +325,36 @@
 
   function qualityScores(quality, reachedPrison) {
     var scores = { performance: null, rendering: null, stability: reachedPrison ? 50 : null };
-    var result = { scores: scores, cap: reachedPrison ? TICK.prison : null, benchmarkFps: null };
-    if (!reachedPrison || !hasShape(quality, ['evidence'], ['benchmark', 'rendering', 'stability'])) return result;
+    var result = { scores: scores, cap: reachedPrison ? TICK.prison : null,
+      benchmarkFps: null, benchmarkFpsUpper: null, benchmarkFpsMethod: null };
+    if (!reachedPrison || !hasShape(quality, ['evidence'], ['benchmark', 'normalizedBenchmark', 'rendering', 'stability'])) return result;
     var cap = evidenceCap(quality.evidence);
     if (cap === TICK.prison) return result;
 
     scores.stability = stabilityScore(ownValue(quality, 'stability'));
     var benchmark = ownValue(quality, 'benchmark');
-    if (!matchesBenchmark(benchmark)) return result;
-    result.benchmarkFps = benchmarkFpsFor(ownValue(benchmark, 'segments'));
+    var hasNormalized = Object.prototype.hasOwnProperty.call(quality, 'normalizedBenchmark');
+    if (hasNormalized && Object.prototype.hasOwnProperty.call(quality, 'benchmark')) return result;
+
+    var route = BENCHMARK_SEGMENTS;
+    if (hasNormalized) {
+      var sample = inspectNormalizedBenchmark(quality.normalizedBenchmark);
+      route = sample.route;
+      if (!route || (route === OBSERVED_GAMEPLAY_SEGMENTS && !sample.measurements)) return result;
+      if (sample.measurements) {
+        result.benchmarkFps = weightedFpsFor(sample.measurements, 'low');
+        result.benchmarkFpsUpper = weightedFpsFor(sample.measurements, 'high');
+        result.benchmarkFpsMethod = 'normalized';
+        var allPaired = sample.measurements.every(function (row) { return row.method === 'paired'; });
+        cap = Math.min(cap, route === BENCHMARK_SEGMENTS && allPaired ? 95 : 85);
+      }
+    } else {
+      if (!matchesBenchmark(benchmark)) return result;
+      result.benchmarkFps = benchmarkFpsFor(ownValue(benchmark, 'segments'));
+      if (result.benchmarkFps !== null) result.benchmarkFpsMethod = 'direct';
+    }
     scores.performance = fpsScore(result.benchmarkFps);
-    scores.rendering = renderingScore(ownValue(quality, 'rendering'));
+    scores.rendering = renderingScore(ownValue(quality, 'rendering'), route);
     if (scores.performance !== null && scores.rendering !== null) result.cap = cap;
     return result;
   }
@@ -284,7 +408,8 @@
     var reachedLabel = milestoneLabelForScore(gta.milestoneLabel, score, reached) ||
       MILESTONES.find(function (milestone) { return milestone.key === reached; }).label;
     return { score: score, groundworkFraction: gw, reached: reached, reachedLabel: reachedLabel,
-      factors: factors, qualityCap: quality.cap, benchmarkFps: quality.benchmarkFps };
+      factors: factors, qualityCap: quality.cap, benchmarkFps: quality.benchmarkFps,
+      benchmarkFpsUpper: quality.benchmarkFpsUpper, benchmarkFpsMethod: quality.benchmarkFpsMethod };
   }
 
   function scoreProject(project) {
@@ -298,9 +423,7 @@
     for (var i = 0; i < projects.length; i++) {
       var p = projects[i];
       if (!p || !p.portProgress || p.status === 'reference') continue;
-      var s = scoreEffort(p.portProgress);
-      ranked.push({ project: p, score: s.score, groundworkFraction: s.groundworkFraction, reached: s.reached, reachedLabel: s.reachedLabel,
-        factors: s.factors, qualityCap: s.qualityCap, benchmarkFps: s.benchmarkFps });
+      ranked.push(Object.assign({ project: p }, scoreEffort(p.portProgress)));
     }
 
     // Keep the project order within ties, as the archive does.
@@ -340,6 +463,8 @@
     FACTOR_WEIGHTS: FACTOR_WEIGHTS, QUALITY_WEIGHTS: QUALITY_WEIGHTS, FPS_CURVE: FPS_CURVE,
     BENCHMARK_PROFILE: BENCHMARK_PROFILE, BENCHMARK_SEGMENTS: BENCHMARK_SEGMENTS,
     BENCHMARK_FLAGS: BENCHMARK_FLAGS, MAX_BENCHMARK_FPS: MAX_BENCHMARK_FPS,
+    normalizedRouteSegments: normalizedRouteSegments,
+    normalizedBenchmarkError: function (benchmark) { return inspectNormalizedBenchmark(benchmark).error; },
     V5_RENDER_LEVELS: V5_RENDER_LEVELS, V5_SESSION_OUTCOMES: V5_SESSION_OUTCOMES,
     RENDER_WEIGHTS: RENDER_WEIGHTS,
     RENDER_LEVELS: RENDER_LEVELS, COVERAGE_KEYS: COVERAGE_KEYS, EVIDENCE_CAPS: EVIDENCE_CAPS,

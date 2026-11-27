@@ -24,8 +24,8 @@ function projectPortProgress(projects, history = []) {
     score, leaderId: leader?.project.id ?? null, leaderName: leader?.project.title ?? null,
     leaderReached: leader?.reached ?? null, leaderReachedLabel: leader?.reachedLabel ?? null,
     top3avg, furthestMilestone, furthestMilestoneLabel, rankedCount, bootsCount,
-    ranked: ranked.map(({ project, score, reached, reachedLabel, factors, qualityCap, benchmarkFps }) => ({
-      id: project.id, score, reached, reachedLabel, factors, qualityCap, benchmarkFps,
+    ranked: ranked.map(({ project, score, reached, reachedLabel, factors, qualityCap, benchmarkFps, benchmarkFpsMethod, benchmarkFpsUpper }) => ({
+      id: project.id, score, reached, reachedLabel, factors, qualityCap, benchmarkFps, benchmarkFpsMethod, benchmarkFpsUpper,
     })),
     rank: Object.fromEntries(ranked.map(({ project }, index) => [project.id, index + 1])),
     history,

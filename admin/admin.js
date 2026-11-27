@@ -1093,7 +1093,10 @@
         edited();
       });
       stabWrap.append(stabLabel, stabSel); gtaGrid.append(stabWrap);
-      panel.append(gtaGrid, element('p', 'hint', 'V5 在「原始 JSON」填 portProgress.gta.qualityV5。旧帧率和稳定性字段保留作历史，不计入 V5。'));
+      panel.append(gtaGrid,
+        element('p', 'hint', '在「原始 JSON」里填写 portProgress.gta.qualityV5。画面和帧率须对应同一构建、画质和路线，两项都有证据才可超过 50%。两种方式均须内部原生 1080p，关闭动态分辨率、超分、补帧和 DLSS 5 等 AI 画面增强。'),
+        element('p', 'hint', '二选一：参考机实测填 benchmark，固定路线每段跑三遍。其他机器实测填 normalizedBenchmark，逐段附原始帧率来源、换算比值范围及依据来源。旧记录不会自动计入 V5。'),
+        element('p', 'hint', '参考机估算按范围下限计帧率分。固定路线全程配对实测的估算总分上限为 95%，CPU 或 GPU 性能对照或实际游玩片段为 85%。只有参考机实测才有资格达到 100%。'));
 
       // other fields
       panel.append(fields(pp, [

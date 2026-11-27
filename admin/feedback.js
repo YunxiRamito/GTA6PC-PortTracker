@@ -10,6 +10,7 @@
   const noticesEndpoint = '/api/admin/site-notices';
   const textLimit = 1000;
   const popupTitleLimit = 80;
+  const maxRetryAfterSeconds = 3600;
   const noticeRevision = /^"[a-f0-9]{64}"$/;
   const uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
   const unknownResponse = '服务返回的数据格式不正确，请重试。';
@@ -57,7 +58,7 @@
   }
 
   async function request(url, body, ifMatch) {
-    const recovery = sessionBanner.hidden ? 0 : sessionFailures;
+    const recovery = sessionBanners.some(banner => !banner.hidden) ? sessionFailures : 0;
     const options = {
       method: body === undefined ? 'GET' : 'PUT',
       mode: 'same-origin', credentials: 'same-origin', cache: 'no-store', redirect: 'error',
@@ -79,6 +80,16 @@
       sessionFailures += 1;
       for (const banner of sessionBanners) banner.hidden = false;
       throw new Error('请重新登录。');
+    }
+    if (response.status === 429) {
+      // A proxy can rate-limit the request before it reaches the JSON API.
+      const retryAfter = response.headers.get('retry-after') ?? '';
+      const seconds = /^\d+$/.test(retryAfter) ? Number(retryAfter) : 0;
+      const error = new Error(seconds > 0 && seconds <= maxRetryAfterSeconds
+        ? `请求过于频繁，请在 ${seconds} 秒后重试。`
+        : '请求过于频繁，请稍后重试。');
+      error.status = response.status;
+      throw error;
     }
     if (!response.ok) {
       const data = response.status < 500 ? await response.json().catch(() => null) : null;

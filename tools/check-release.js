@@ -78,7 +78,9 @@ function permittedHost(file, host) {
 function list(relative = '') {
   const found = [];
   for (const entry of fs.readdirSync(path.resolve(root, relative), { withFileTypes: true })) {
-    if (!relative && entry.isDirectory() && !entry.isSymbolicLink() && (entry.name === '.git' || entry.name === '.preview')) continue;
+    // Git uses a directory in a checkout and a regular metadata pointer in a linked worktree.
+    if (!relative && !entry.isSymbolicLink() && entry.name === '.git' && (entry.isDirectory() || entry.isFile())) continue;
+    if (!relative && entry.isDirectory() && !entry.isSymbolicLink() && entry.name === '.preview') continue;
     const file = relative ? `${relative}/${entry.name}` : entry.name;
     assert(!entry.isSymbolicLink(), `Unexpected link: ${file}`);
     if (entry.isDirectory() && directories.has(file)) found.push(...list(file));
