@@ -29,7 +29,7 @@
   var QUALITY_WEIGHTS = Object.freeze({ bottleneck: 0.80, rendering: 0.15, performance: 0.05 });
   var FPS_CURVE = Object.freeze([[0, 0], [5, 10], [10, 25], [15, 35], [30, 60], [60, 80], [90, 100]].map(Object.freeze));
   var MAX_BENCHMARK_FPS = 1000;
-  var BENCHMARK_PROFILE = Object.freeze({ id: 'steam-2026-10-v1', routeId: 'prison-v1', preset: 'series-x', width: 1920, height: 1080 });
+  var BENCHMARK_PROFILE = Object.freeze({ id: 'i7-12700-rtx-4060-v1', routeId: 'prison-v1', preset: 'series-x', width: 1920, height: 1080 });
   var BENCHMARK_SEGMENTS = Object.freeze(['interior', 'corridor', 'yard']);
   var BENCHMARK_FLAGS = Object.freeze(['dynamicResolution', 'upscaling', 'frameGeneration', 'dlss5']);
   var BENCHMARK_FIELDS = ['profileId', 'routeId', 'preset', 'width', 'height'].concat(BENCHMARK_FLAGS);

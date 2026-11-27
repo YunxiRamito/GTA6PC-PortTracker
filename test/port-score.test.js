@@ -18,12 +18,12 @@ const unknownFactors = { performance: null, rendering: null, stability: null };
 const prisonDefaults = { ...unknownFactors, stability: 50 };
 const route = ['interior', 'corridor', 'yard'];
 const nativeBenchmark = {
-  profileId: 'steam-2026-10-v1', routeId: 'prison-v1', preset: 'series-x', width: 1920, height: 1080,
+  profileId: 'i7-12700-rtx-4060-v1', routeId: 'prison-v1', preset: 'series-x', width: 1920, height: 1080,
   dynamicResolution: false, upscaling: false, frameGeneration: false, dlss5: false,
 };
 const evidence = {
   level: 'reproduced', sourceUrl: 'https://localhost/v5-run', build: 'fixture-v5-build',
-  setup: 'Steam reference PC, original 1080p', observedOn: '2026-11-25',
+  setup: 'Fixed i7-12700 / RTX 4060 reference PC, native 1080p', observedOn: '2026-11-25',
 };
 const benchmarkFor = (fps = 90, seconds = 100) => ({
   ...nativeBenchmark,
@@ -159,7 +159,7 @@ test('a missing factor keeps overall at 50 but preserves each independently veri
 });
 
 test('both quality factors require the exact profile, route, preset, native 1080p and four false switches', () => {
-  for (const [key, value] of [['profileId', 'other-pc'], ['routeId', 'other-route'], ['preset', 'low'],
+  for (const [key, value] of [['profileId', 'other-pc'], ['profileId', 'steam-2026-10-v1'], ['routeId', 'other-route'], ['preset', 'low'],
     ['width', 1280], ['height', 720], ['width', '1920'], ['dynamicResolution', true], ['upscaling', true],
     ['frameGeneration', true], ['dlss5', true], ['frameGeneration', 0], ['dlss5', 'false']]) {
     const r = scoreQuality({ ...qualityV5, benchmark: { ...qualityV5.benchmark, [key]: value } });
@@ -488,7 +488,7 @@ test('MILESTONES exposes total anchors without treating FPS as an overall milest
 test('exports the reference profile, V5 tables and unchanged V4 validation constants', () => {
   assert.deepEqual(ps.FACTOR_WEIGHTS, { quality: 0.9, stability: 0.1 });
   assert.deepEqual(ps.QUALITY_WEIGHTS, { bottleneck: 0.8, rendering: 0.15, performance: 0.05 });
-  assert.deepEqual(ps.BENCHMARK_PROFILE, { id: 'steam-2026-10-v1', routeId: 'prison-v1', preset: 'series-x', width: 1920, height: 1080 });
+  assert.deepEqual(ps.BENCHMARK_PROFILE, { id: 'i7-12700-rtx-4060-v1', routeId: 'prison-v1', preset: 'series-x', width: 1920, height: 1080 });
   assert.deepEqual(ps.BENCHMARK_SEGMENTS, route);
   assert.deepEqual(ps.V5_RENDER_LEVELS, {
     critical: { score: 10, cap: 30 }, major: { score: 40, cap: 55 }, localized: { score: 70, cap: 85 },
