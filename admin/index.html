@@ -270,7 +270,7 @@
         <p class="eyebrow" id="editorial-eyebrow" data-shell-eyebrow>CONTENT</p>
         <h1 id="editorial-title" tabindex="-1" data-shell-title>内容编辑</h1>
         <p id="editorial-intro"></p>
-        <p class="page-note">各分区共用一份草稿，切换分区会保留修改。点「保存全部」后按分区保存。</p>
+        <p class="page-note">分区表单只保存当前分区，切换分区会保留草稿。「原始 JSON」按全文保存。</p>
       </header>
 
       <div class="toolbar" role="group" aria-label="编辑与保存">
@@ -281,7 +281,7 @@
         <div class="save-actions">
           <span class="state" id="draft-state">尚未读取</span>
           <button type="button" class="button" id="reload">重新读取</button>
-          <button type="button" class="button primary" id="save" disabled>保存全部</button>
+          <button type="button" class="button primary" id="save" disabled>保存本区</button>
         </div>
       </div>
 
@@ -291,7 +291,7 @@
       </section>
       <div class="conflict" id="conflict" hidden>
         <strong>服务器有更新，本页草稿未丢失。</strong>
-        <p>点击「重新读取」载入最新版本。旧草稿会保留在「原始 JSON」下方，供你对照合并，再保存新版。</p>
+        <p>点击「重新读取」载入当前编辑范围的最新版本。旧草稿会保留在「原始 JSON」下方，供你对照合并。</p>
       </div>
 
       <div id="workspace" hidden>
@@ -299,7 +299,7 @@
         <section class="editor-panel json-view" id="json-view" aria-labelledby="json-title" hidden>
           <p class="eyebrow">ADVANCED / JSON</p>
           <h2 id="json-title" tabindex="-1">原始 JSON</h2>
-          <p class="section-intro" id="json-help">编辑整个内容对象，不要加外层的 <code>content</code>。内容是有效 JSON 才能保存或切回表单。</p>
+          <p class="section-intro" id="json-help">编辑整个内容对象，不要加外层的 <code>content</code>。此处按全文保存，任一分区更新都会使全文版本过期。内容是有效 JSON 才能保存或切回表单。</p>
           <label for="raw-editor">完整内容对象</label>
           <textarea class="raw-editor" id="raw-editor" spellcheck="false" autocomplete="off" autocapitalize="off" aria-describedby="json-help json-error"></textarea>
           <p class="field-error" id="json-error" role="alert" hidden></p>

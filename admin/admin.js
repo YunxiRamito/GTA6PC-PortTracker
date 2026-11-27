@@ -25,24 +25,68 @@
   const conflict = byId('conflict');
   const intro = byId('editorial-intro');
 
-  let draft = null;
-  let savedContent = null;
-  let baseline = '';
-  let etag = '';
+  const contentParts = ['home', 'countdown', 'roadmap', 'announcements', 'downloads', 'news', 'projects', 'community'];
+  const roadmapResources = {
+    playability: ['playability'],
+    gameplay: ['gameplayProgress'],
+    privateprojects: ['privateRepositories', 'communityBuild', 'externalProgress'],
+  };
+  const roadmapParts = Object.keys(roadmapResources);
+  const ownedRoadmapFields = new Set(Object.values(roadmapResources).flat());
+  const snapshots = new Map();
+  const conflicts = new Set();
+  let draft = {};
+  let jsonBaseline = '';
+  let jsonVersion = '';
+  let jsonStale = false;
+  let jsonRoadmapKeys = [];
   let section = 'home';
   let mode = 'form';
   let pending = '';
-  let stale = false;
   let projectQuery = '';
   let savedPrivateIds = new Set();
 
   const format = (content) => JSON.stringify(content, null, 2);
-  const draftText = () => mode === 'json' ? raw.value : format(draft);
-  const isDirty = () => draft !== null && draftText() !== baseline;
+  const same = (left, right) => JSON.stringify(left) === JSON.stringify(right);
+  const editParts = () => section === 'projects' ? ['privateprojects', 'projects'] : [section === 'roadmap' ? 'gameplay' : section];
+  const hasFormData = () => editParts().every(part => snapshots.has(part)) && (section !== 'home' || snapshots.has('news'));
+  const isDirtyPart = part => snapshots.has(part) && !same(partValue(draft, part), snapshots.get(part).baseline);
+  const isDirty = () => mode === 'json' ? raw.value !== jsonBaseline : contentParts.some(isDirtyPart) || roadmapParts.some(isDirtyPart);
+  const hasConflict = () => mode === 'json' ? jsonStale : editParts().some(part => conflicts.has(part));
+  const canSavePart = part => snapshots.get(part)?.version && !conflicts.has(part) && isDirtyPart(part);
+  const partNames = { playability: '可玩情况', gameplay: '总进度', privateprojects: '私有仓库', projects: '公开仓库' };
+  const partTitle = part => partNames[part] ?? editors[part].title;
   const text = (value) => typeof value === 'string' || typeof value === 'number' ? String(value) : '';
   const isRecord = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+  const isRecordList = (value) => Array.isArray(value) && value.every(isRecord);
   const MAX_PRIVATE_REPOSITORIES = 160;
   const PRIVATE_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+  function pickFields(record, fields) {
+    return Object.fromEntries(fields.filter(field => Object.hasOwn(record, field)).map(field => [field, record[field]]));
+  }
+
+  // The form keeps the full document shape. For drafts, the local 'roadmap' slice tracks
+  // fields without a form resource, so a JSON → form → JSON round trip does not lose them.
+  function partValue(document, part) {
+    if (part === 'roadmap') {
+      return Object.fromEntries(Object.entries(document.roadmap ?? {}).filter(([key]) => !ownedRoadmapFields.has(key)));
+    }
+    if (Object.hasOwn(roadmapResources, part)) return pickFields(document.roadmap ?? {}, roadmapResources[part]);
+    return document[part];
+  }
+
+  function setPart(document, part, value) {
+    if (part === 'roadmap') {
+      document.roadmap = { ...value, ...pickFields(document.roadmap ?? {}, [...ownedRoadmapFields]) };
+    } else if (Object.hasOwn(roadmapResources, part)) {
+      const route = document.roadmap ??= {};
+      for (const key of roadmapResources[part]) {
+        if (Object.hasOwn(value, key)) route[key] = value[key];
+        else delete route[key];
+      }
+    } else document[part] = value;
+  }
 
   function element(tag, className, value) {
     const node = document.createElement(tag);
@@ -64,19 +108,26 @@
   }
 
   function updateControls() {
-    const dirty = isDirty();
+    const full = mode === 'json';
+    const ready = full || hasFormData();
+    const dirty = full ? isDirty() : editParts().some(isDirtyPart);
+    const stale = hasConflict();
     const busy = pending !== '';
+    const anyDirty = full ? dirty : isDirty();
+    const canSave = full ? dirty && !stale && jsonVersion : editParts().some(canSavePart);
+    workspace.hidden = !ready;
     workspace.inert = busy;
     reload.disabled = busy;
     logout.disabled = busy;
-    save.disabled = busy || !dirty || stale;
-    formMode.disabled = jsonMode.disabled = busy || !draft;
+    save.disabled = !ready || busy || !canSave;
+    save.textContent = full ? '保存全部' : '保存本区';
+    formMode.disabled = jsonMode.disabled = busy || !ready;
     conflict.hidden = !stale;
 
-    const label = pending || (stale ? '版本冲突' : dirty ? '未保存' : draft ? '已同步' : '尚未读取');
+    const label = pending || (stale ? '版本冲突' : dirty ? '未保存' : anyDirty ? '其他分区有草稿' : ready ? '已同步' : '尚未读取');
     if (draftState.textContent !== label) draftState.textContent = label;
-    draftState.dataset.state = stale || dirty ? 'draft' : 'normal';
-    if (dirty) window.addEventListener('beforeunload', warnBeforeLeaving);
+    draftState.dataset.state = stale || anyDirty ? 'draft' : 'normal';
+    if (anyDirty) window.addEventListener('beforeunload', warnBeforeLeaving);
     else window.removeEventListener('beforeunload', warnBeforeLeaving);
   }
 
@@ -89,28 +140,32 @@
   }
 
   function assertShape(content) {
-    const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
-    if (!object(content)) throw new Error('内容必须是一个 JSON 对象。');
-    for (const name of ['home', 'countdown', 'roadmap', 'announcements', 'downloads', 'community']) {
-      if (!object(content[name])) throw new Error(`缺少 ${name} 对象。`);
+    if (!isRecord(content)) throw new Error('内容必须是一个 JSON 对象。');
+    for (const name of Object.keys(content)) {
+      if (!contentParts.includes(name)) throw new Error(`${name} 不是可维护的内容分区。`);
     }
-    if (Object.hasOwn(content.countdown, 'enabled') && typeof content.countdown.enabled !== 'boolean') {
+    for (const part of contentParts) assertPart(part, content[part]);
+    return content;
+  }
+
+  function assertPart(part, value) {
+    if (part === 'news' || part === 'projects') {
+      if (!isRecordList(value)) throw new Error(`${part} 必须是对象列表。`);
+      return value;
+    }
+    if (!isRecord(value)) throw new Error(`缺少 ${part} 对象。`);
+    if (Object.hasOwn(roadmapResources, part) && Object.keys(value).some(key => !roadmapResources[part].includes(key))) {
+      throw new Error(`${part} 包含不属于该分区的字段。`);
+    }
+    if (part === 'countdown' && Object.hasOwn(value, 'enabled') && typeof value.enabled !== 'boolean') {
       throw new Error('countdown.enabled 必须是 true 或 false。');
     }
-    const lists = [
-      ['announcements.items', content.announcements.items],
-      ['downloads.items', content.downloads.items],
-      ['news', content.news],
-      ['projects', content.projects],
-      ['community.groups', content.community.groups],
-    ];
-    for (const [name, items] of lists) {
-      if (!Array.isArray(items) || !items.every(object)) throw new Error(`${name} 必须是对象列表。`);
-    }
-    if (Object.keys(content.community).length !== 1 || content.community.groups.length !== 0) {
+    const listKey = { announcements: 'items', downloads: 'items', community: 'groups' }[part];
+    if (listKey && !isRecordList(value[listKey])) throw new Error(`${part}.${listKey} 必须是对象列表。`);
+    if (part === 'community' && (Object.keys(value).length !== 1 || value.groups.length !== 0)) {
       throw new Error('community.groups 必须为空列表。');
     }
-    return content;
+    return value;
   }
 
   const gameplayStatuses = {
@@ -141,17 +196,12 @@
     }
     const responseVersion = response.headers.get('ETag');
     if (!responseVersion) throw new Error('响应缺少 ETag，无法确认内容版本。');
-    const result = body?.content;
-    if (part === 'roadmap' ? !isRecord(result) : part === 'projects' && (!Array.isArray(result) || !result.every(isRecord))) {
-      throw new Error('服务器返回的分区内容格式有误。');
-    }
-    return { content: part ? result : assertShape(result), version: responseVersion };
+    return { content: part ? assertPart(part, body?.content) : assertShape(body?.content), version: responseVersion };
   }
 
   function reportError(error, action, savedParts = []) {
     const prefix = savedParts.length ? `${savedParts.join('、')}已保存。` : '';
     if (error.status === 412) {
-      stale = true;
       setStatus('conflict', `${prefix}${action}遇到版本冲突。草稿已保留。`, error.details);
     } else if (error.status === 401) {
       setStatus('error', `${prefix}登录状态已失效，正在前往登录页。`);
@@ -173,7 +223,8 @@
 
   function readRaw() {
     try {
-      const parsed = canonicalizePrivateRepositories(assertShape(JSON.parse(raw.value)), draft.roadmap.privateRepositories);
+      const parsed = assertShape(JSON.parse(raw.value));
+      canonicalizePrivateRepositories(parsed.roadmap, draft.roadmap.privateRepositories);
       clearJsonError();
       return parsed;
     } catch (error) {
@@ -194,7 +245,7 @@
   }
 
   function openForm(key) {
-    if (!draft || pending) return;
+    if (pending) return;
     if (mode === 'json') {
       const parsed = readRaw();
       if (!parsed) return;
@@ -202,27 +253,52 @@
     }
     section = key;
     showMode('form');
+    intro.textContent = editors[key].intro;
+    const missing = editParts().filter(part => !snapshots.get(part)?.version && !conflicts.has(part));
+    // The home picker lists news, but home edits only write and depend on the home version.
+    if (section === 'home' && !snapshots.has('news')) missing.push('news');
+    if (missing.length) return loadForm(missing, { focus: true });
     renderSection(true);
+    showFormStatus();
     updateControls();
   }
 
-  function updateBaseline() {
-    const savedDraft = canonicalizePrivateRepositories(structuredClone(savedContent));
-    baseline = format(savedDraft);
-    const privateRepositories = savedDraft.roadmap.privateRepositories;
-    savedPrivateIds = new Set(Array.isArray(privateRepositories) ? privateRepositories.map(item => item?.id) : []);
-    return savedDraft;
+  function acceptPart(part, { content, version }, keepDraft = false) {
+    const previous = snapshots.get(part);
+    const sameSource = same(content, previous?.content);
+    const preserve = keepDraft && isDirtyPart(part);
+    // Do not pair an existing draft with a newer version of the data it was built from.
+    if (preserve && !sameSource) {
+      conflicts.add(part);
+      return false;
+    }
+    let baseline = structuredClone(content);
+    if (part === 'privateprojects') {
+      canonicalizePrivateRepositories(baseline);
+      baseline = pickFields(baseline, roadmapResources.privateprojects);
+      const rows = baseline.privateRepositories;
+      savedPrivateIds = new Set(Array.isArray(rows) ? rows.map(item => item?.id) : []);
+    }
+    snapshots.set(part, { content, baseline, version: version ?? (sameSource ? previous?.version : undefined) });
+    if (!preserve) setPart(draft, part, structuredClone(baseline));
+    conflicts.delete(part);
+    return true;
   }
 
-  function accept({ content, version }) {
-    savedContent = content;
-    draft = updateBaseline();
-    etag = version;
-    stale = false;
-    raw.value = baseline;
+  function acceptFull({ content, version }, keepDraft = false) {
+    jsonStale = false;
+    const fullBaseline = {};
+    const fullDraft = {};
+    for (const part of [...Object.keys(content), ...roadmapParts]) {
+      if (!acceptPart(part, { content: partValue(content, part) }, keepDraft)) jsonStale = true;
+      setPart(fullBaseline, part, snapshots.get(part).baseline);
+      setPart(fullDraft, part, partValue(draft, part));
+    }
+    jsonBaseline = format(fullBaseline);
+    raw.value = format(fullDraft);
+    jsonRoadmapKeys = Object.keys(content.roadmap);
+    jsonVersion = jsonStale ? '' : version;
     clearJsonError();
-    workspace.hidden = false;
-    if (mode === 'form') renderSection();
   }
 
   function retainDraft(value) {
@@ -242,88 +318,148 @@
     recovery.open = true;
   }
 
-  async function loadContent() {
-    if (pending) return;
-    const backup = stale && isDirty() ? draftText() : null;
-    if (backup === null && isDirty() && !window.confirm('重新读取会放弃本页未保存的修改。继续吗？')) return;
+  function showFormStatus(message = '') {
+    if (hasConflict()) setStatus('conflict', '当前分区遇到版本冲突。草稿已保留。');
+    else if (message) setStatus('success', message);
+    else setStatus('neutral', '可编辑当前分区。');
+  }
+
+  async function loadForm(parts, { replace = false, focus = false } = {}) {
     pending = '正在读取';
     updateControls();
-    setStatus('neutral', '正在读取本机内容…');
-    let focusTarget;
+    setStatus('neutral', '正在读取当前分区…');
+    let loaded = false;
     try {
-      const next = await request('GET');
-      if (backup !== null) {
-        retainDraft(backup);
-        showMode('json');
+      const next = await Promise.all(parts.map(part => request('GET', { part })));
+      const backedUp = replace ? parts.filter(part => conflicts.has(part) && isDirtyPart(part)) : [];
+      if (backedUp.length) {
+        const backup = {};
+        for (const part of backedUp) setPart(backup, part, partValue(draft, part));
+        retainDraft(format(backup));
       }
-      accept(next);
-      setStatus('success', backup === null ? '已读取服务器内容。' : '已读取最新内容。旧草稿已在下方备份，可对照合并。');
-      if (backup !== null) focusTarget = byId('json-title');
+      parts.forEach((part, i) => acceptPart(part, next[i], !replace));
+      loaded = true;
+      showFormStatus(backedUp.length ? '已读取最新分区。旧草稿已备份在「原始 JSON」，可对照合并。' : '已读取当前分区。');
     } catch (error) {
-      focusTarget = reportError(error, '读取');
+      reportError(error, '读取分区');
     } finally {
       pending = '';
       updateControls();
-      focusTarget?.focus();
+      if (hasFormData() && (loaded || !replace)) renderSection(focus);
     }
   }
 
-  async function savePartition(part) {
-    // 分区接口各自读取 ETag。服务器当前共用版本号，前一分区保存后要重新读取后一分区。
-    const current = await request('GET', { part });
-    if (format(current.content) !== format(savedContent[part])) {
-      const error = new Error('服务器分区内容已更新。');
-      error.status = 412;
-      throw error;
+  async function loadJson({ opening = false } = {}) {
+    const backup = !opening && jsonStale && isDirty() ? raw.value : null;
+    if (!opening && backup === null && isDirty() && !window.confirm('重新读取全文会放弃未保存的修改。继续吗？')) return;
+    pending = '正在读取';
+    updateControls();
+    setStatus('neutral', '正在读取全文…');
+    let loaded = false;
+    try {
+      const next = await request('GET');
+      if (backup !== null) retainDraft(backup);
+      acceptFull(next, opening);
+      showMode('json');
+      loaded = true;
+      if (jsonStale) setStatus('conflict', '有草稿基于较早的分区版本，不能直接保存全文。草稿已保留。');
+      else setStatus('success', backup === null ? '已读取全文。' : '已读取全文。旧草稿已在下方备份，可对照合并。');
+    } catch (error) {
+      reportError(error, '读取全文');
+    } finally {
+      pending = '';
+      updateControls();
+      if (loaded && (opening || backup !== null)) byId('json-title').focus();
     }
-    const next = await request('PUT', { part, content: draft[part], version: current.version });
-    savedContent[part] = next.content;
-    draft[part] = updateBaseline()[part];
-    // 只有服务器此前与完整快照一致时，才能推进全文 ETag。
-    if (etag === current.version) etag = next.version;
+  }
+
+  function reloadContent() {
+    if (pending) return;
+    if (mode === 'json') return loadJson();
+    const parts = editParts();
+    const stale = parts.filter(part => conflicts.has(part));
+    if (!stale.length && parts.some(isDirtyPart) && !window.confirm('重新读取会放弃当前分区未保存的修改。继续吗？')) return;
+    const targets = stale.length ? stale : parts;
+    if (section === 'home' && !snapshots.has('news')) targets.push('news');
+    return loadForm(targets, { replace: true });
+  }
+
+  function checkRoadmap(roadmap) {
+    const details = validatePrivateRepositories(roadmap);
+    if (details.length) throw Object.assign(new Error('请先修正私有仓库资料，草稿已保留。'), { details });
+  }
+
+  function archiveChanges(value, { content, baseline }) {
+    const changes = {};
+    // Update rows only when they were edited. Editing the historical translation alone must
+    // not migrate a legacy build or add an explicit list that would suppress its fallback.
+    if (!same(value.privateRepositories, baseline.privateRepositories)) {
+      checkRoadmap(value);
+      changes.privateRepositories = value.privateRepositories;
+      if (Object.hasOwn(content, 'communityBuild')) changes.communityBuild = null;
+    }
+    if (Object.hasOwn(value, 'communityBuild')) {
+      if (!isRecord(value.communityBuild)) throw new Error('历史社区构建必须是对象。');
+      changes.communityBuild = value.communityBuild;
+    }
+    if (!same(value.externalProgress, baseline.externalProgress)) {
+      if (value.externalProgress === null) throw new Error('历史外部进度必须是对象；如需移除，请删除该字段。');
+      changes.externalProgress = value.externalProgress ?? null;
+    }
+    return changes;
+  }
+
+  function fullRoadmapForSave(route) {
+    const { content, baseline } = snapshots.get('privateprojects');
+    if (same(route.privateRepositories, baseline.privateRepositories) && !Object.hasOwn(route, 'communityBuild')) {
+      // Undo display-only normalization when no private rows were edited.
+      delete route.privateRepositories;
+      Object.assign(route, pickFields(content, ['privateRepositories', 'communityBuild']));
+    } else checkRoadmap(route);
+    const keys = [...new Set([...jsonRoadmapKeys, ...Object.keys(route)])];
+    return pickFields(route, keys);
+  }
+
+  async function saveForm(parts) {
+    const saved = [];
+    let failure;
+    for (const part of parts) {
+      const label = partTitle(part);
+      try {
+        const snapshot = snapshots.get(part);
+        const value = partValue(draft, part);
+        const content = part === 'privateprojects' ? archiveChanges(value, snapshot) : value;
+        const next = await request('PUT', { part, content, version: snapshot.version });
+        acceptPart(part, next);
+        saved.push(label);
+      } catch (error) {
+        failure = { error, action: `保存「${label}」` };
+        if (error.status !== 412) break;
+        conflicts.add(part);
+        // The archive form spans two independent API sections. A conflict in one need not block the other.
+      }
+    }
+    if (saved.length) renderSection();
+    if (failure) reportError(failure.error, failure.action, saved);
+    else setStatus('success', `${saved.join('、')}已保存。`);
   }
 
   async function saveContent() {
-    if (!draft || pending || stale || !isDirty()) return;
-    const content = mode === 'json' ? readRaw() : canonicalizePrivateRepositories(draft);
-    if (!content) return;
-    const repositoryErrors = validatePrivateRepositories(content.roadmap);
-    if (repositoryErrors.length) {
-      setStatus('error', '请先修正私有仓库资料，草稿已保留。', repositoryErrors);
-      return;
-    }
-    const { roadmap, projects, ...other } = content;
-    const { roadmap: savedRoadmap, projects: savedProjects, ...savedOther } = JSON.parse(baseline);
-    const partitions = [];
-    if (format(roadmap) !== format(savedRoadmap)) partitions.push(['roadmap', '移植路线']);
-    if (format(projects) !== format(savedProjects)) partitions.push(['projects', '公开仓库']);
-    const saveOther = format(other) !== format(savedOther);
-
-    draft = content;
+    if (pending || save.disabled) return;
+    const json = mode === 'json' ? readRaw() : null;
+    if (mode === 'json' && !json) return;
     pending = '正在保存';
     updateControls();
     setStatus('neutral', '正在保存内容…');
-    const savedParts = [];
-    let action = '保存内容';
-    let acceptedFull = false;
     try {
-      for (const [part, label] of partitions) {
-        action = `保存「${label}」`;
-        await savePartition(part);
-        savedParts.push(label);
-      }
-      if (saveOther) {
-        action = '保存其他内容';
-        // 全文保存仅应用其余字段，保留两个分区的服务器版本和兼容字段。
-        accept(await request('PUT', { content: { ...draft, roadmap: savedContent.roadmap, projects: savedContent.projects }, version: etag }));
-        acceptedFull = true;
-      } else raw.value = format(draft);
+      if (!json) return await saveForm(editParts().filter(canSavePart));
+      json.roadmap = fullRoadmapForSave(json.roadmap);
+      acceptFull(await request('PUT', { content: json, version: jsonVersion }));
       setStatus('success', '全部内容已保存。');
     } catch (error) {
-      if (savedParts.length) raw.value = format(draft);
-      reportError(error, action, savedParts);
+      if (json && error.status === 412) jsonStale = true;
+      reportError(error, json ? '保存全文' : '保存分区');
     } finally {
-      if (!acceptedFull && savedParts.length && mode === 'form') renderSection();
       pending = '';
       updateControls();
     }
@@ -899,21 +1035,20 @@
     return group;
   }
 
-  function canonicalizePrivateRepositories(content, draftEntries) {
-    const route = content.roadmap;
+  function canonicalizePrivateRepositories(route, draftEntries) {
     if (!Object.hasOwn(route, 'privateRepositories')) {
       const legacy = route.communityBuild;
       if (Array.isArray(draftEntries)) {
         // Omitting the list while editing another field is not a request to clear it.
         route.privateRepositories = draftEntries;
       } else if (isRecord(legacy)) {
-        const { title, summary, sourceLabel, sourceUrl, portProgress } = legacy;
+        const { title, summary, sourceLabel, sourceUrl, portProgress, translations } = legacy;
         const id = 'legacy';
-        route.privateRepositories = [{ id, title, summary, sourceLabel, sourceUrl, portProgress }];
+        route.privateRepositories = [{ id, title, summary, sourceLabel, sourceUrl, portProgress,
+          ...(translations !== undefined && { translations }) }];
       }
     }
     if (Array.isArray(route.privateRepositories)) delete route.communityBuild;
-    return content;
   }
 
   const privateRepositoryTextFields = [
@@ -1299,39 +1434,28 @@
 
   function enterSection(key) {
     if (!Object.hasOwn(editors, key)) return;
-    if (!draft) {
-      section = key;
-      intro.textContent = editors[key].intro;
-      return;
-    }
     if (mode === 'json' && key === section) return;
-    openForm(key);
+    return openForm(key);
   }
 
   window.AdminShell?.register('content', {
     canEnter(route) {
       if (pending) return `${pending}，请稍候再切换分区。`;
-      if (draft && mode === 'json' && route.part !== section && !readRaw()) return '原始 JSON 有误，修正后才能切换分区。';
+      if (mode === 'json' && route.part !== section && !readRaw()) return '原始 JSON 有误，修正后才能切换分区。';
       return true;
     },
-    enter(route) { enterSection(route.part); },
+    enter(route) { return enterSection(route.part); },
     dirty() { return isDirty() ? '内容编辑' : ''; },
   });
-  if (!window.AdminShell) intro.textContent = editors[section].intro;
-  formMode.addEventListener('click', () => { if (mode !== 'form') openForm(section); });
+  formMode.addEventListener('click', () => { if (mode !== 'form') return openForm(section); });
   jsonMode.addEventListener('click', () => {
-    if (!draft || pending || mode === 'json') return;
-    raw.value = format(draft);
-    clearJsonError();
-    showMode('json');
-    byId('json-title').focus();
-    updateControls();
+    if (hasFormData() && !pending && mode === 'form') return loadJson({ opening: true });
   });
   raw.addEventListener('input', () => {
     clearJsonError();
     updateControls();
   });
-  reload.addEventListener('click', loadContent);
+  reload.addEventListener('click', reloadContent);
   save.addEventListener('click', saveContent);
-  loadContent();
+  if (!window.AdminShell) openForm(section);
 })();

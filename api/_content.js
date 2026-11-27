@@ -9,6 +9,12 @@ const { createFixtures } = require('../fixtures/demo');
 const { BUILD_TRANSLATION_FIELDS, NEWS_TRANSLATION_FIELDS, copyTranslations, validateContentTranslations } = require('./_content-locale');
 const SECTIONS = ['home', 'countdown', 'roadmap', 'announcements', 'downloads', 'news', 'projects', 'community'];
 const PUBLIC_SECTIONS = ['home', 'countdown', 'roadmap', 'announcements', 'downloads', 'community'];
+// These are resource names, not additional keys in the stored/full content document.
+const ROADMAP_RESOURCES = {
+  playability: ['playability'],
+  gameplay: ['gameplayProgress'],
+  privateprojects: ['privateRepositories', 'communityBuild', 'externalProgress'],
+};
 const RETIRED_ROADMAP_FIELDS = new Set(['currentStep', 'note', 'steps']);
 const BUILD_FIELDS = ['title', 'summary', 'sourceLabel', 'sourceUrl', 'portProgress', 'translations'];
 const PRIVATE_REPOSITORY_FIELDS = new Set(['id', ...BUILD_FIELDS]);
@@ -383,6 +389,26 @@ function mergeCompatibleRoadmap(saved, proposed) {
   return Object.fromEntries(fields);
 }
 
+function applyRoadmapResource(roadmap, section, fields, proposed) {
+  if (!object(proposed) || Object.keys(proposed).some(field => !fields.includes(field))) {
+    throw new ContentError(422, '有些内容未通过检查', [`${section}：只接受包含以下字段的对象：${fields.join('、')}`]);
+  }
+  const archive = section === 'privateprojects';
+  const next = { ...roadmap };
+  for (const field of fields) {
+    if (!Object.hasOwn(proposed, field)) {
+      // An omitted optional record clears these single-record resources, not the archive.
+      if (!archive) delete next[field];
+    } else if (archive && field !== 'privateRepositories' && proposed[field] === null) {
+      // Legacy records are removed only explicitly. The private list itself must be an array.
+      delete next[field];
+    } else {
+      next[field] = proposed[field];
+    }
+  }
+  return next;
+}
+
 function withCountdownDefault(content, enabled = true) {
   if (Object.hasOwn(content.countdown, 'enabled')) return content;
   return { ...content, countdown: { ...content.countdown, enabled } };
@@ -430,20 +456,37 @@ function createContentStore({
   let etag = revision(content);
   let queue = Promise.resolve();
 
+  // Scope the validator to the editable payload. Keep the full/public revision unchanged.
+  function etagFor(section, value) {
+    return section ? revision([section, value]) : etag;
+  }
+
+  function valueFor(section, fields) {
+    if (!section) return content;
+    if (fields) return Object.fromEntries(fields.filter(field => Object.hasOwn(content.roadmap, field))
+      .map(field => [field, content.roadmap[field]]));
+    if (!SECTIONS.includes(section)) throw new ContentError(404, '没有这个分区');
+    return content[section];
+  }
+
   function read(section) {
-    if (section && !SECTIONS.includes(section)) throw new ContentError(404, '没有这个分区');
-    return { content: structuredClone(section ? content[section] : content), etag, updatedAt };
+    const fields = Object.hasOwn(ROADMAP_RESOURCES, section) ? ROADMAP_RESOURCES[section] : null;
+    const value = valueFor(section, fields);
+    return { content: structuredClone(value), etag: etagFor(section, value), updatedAt };
   }
 
   function write(proposed, ifMatch, section) {
     const work = queue.then(async () => {
-      if (section && !SECTIONS.includes(section)) throw new ContentError(404, '没有这个分区');
+      const fields = Object.hasOwn(ROADMAP_RESOURCES, section) ? ROADMAP_RESOURCES[section] : null;
+      const current = valueFor(section, fields);
       if (!ifMatch) throw new ContentError(428, '请先获取当前版本，再使用 If-Match 保存');
-      if (ifMatch !== etag) throw new ContentError(412, '内容已被别人更新。请先获取最新版，再合并你的修改');
-      const candidate = section ? { ...content, [section]: proposed } : proposed;
+      // Check inside the queue against the latest committed content, then merge only this section.
+      if (ifMatch !== etagFor(section, current)) throw new ContentError(412, '内容已被别人更新。请先获取最新版，再合并你的修改');
+      const candidate = fields ? { ...content, roadmap: applyRoadmapResource(content.roadmap, section, fields, proposed) }
+        : section ? { ...content, [section]: proposed } : proposed;
       const details = validateContent(candidate);
       if (details.length) throw new ContentError(422, '有些内容未通过检查', details);
-      const compatible = candidate.roadmap === content.roadmap ? candidate : {
+      const compatible = fields || candidate.roadmap === content.roadmap ? candidate : {
         ...candidate, roadmap: mergeCompatibleRoadmap(content.roadmap, candidate.roadmap),
       };
       const next = withCountdownDefault(withNewsIds(compatible), content.countdown.enabled);

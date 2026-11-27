@@ -35,7 +35,8 @@ const allowlist = [
   'assets/ui/barlow-condensed-700-latin.woff2', 'assets/ui/barlow-condensed-900-latin.woff2',
   'assets/ui/fluent.svg', 'assets/ui/octicons.svg', 'assets/vendor/Lenis-LICENSE.txt', 'assets/vendor/lenis.min.js',
   'docs/demo-screenshot.png', 'docs/provenance.md', 'fixtures/demo.js', 'fixtures/hardware-demo.js',
-  'scripts/bootstrap-account-owner.js', 'test/hardware-check.test.js', 'test/i18n.test.js', 'test/port-score.test.js', 'test/server.test.js', 'tools/check-release.js', 'tools/sync-core.cjs', 'tools/sync-from-site.cjs',
+  'scripts/bootstrap-account-owner.js', 'test/admin-account-role-drafts.test.js', 'test/admin-danmaku-config-navigation.test.js',
+  'test/hardware-check.test.js', 'test/i18n.test.js', 'test/port-score.test.js', 'test/server.test.js', 'tools/check-release.js', 'tools/sync-core.cjs', 'tools/sync-from-site.cjs',
 ].sort();
 const permitted = new Set([...allowlist, manifest]);
 const directories = new Set();

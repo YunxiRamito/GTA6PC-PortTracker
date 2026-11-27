@@ -62,8 +62,10 @@ node preview.js
 | `POST /api/danmaku`、`GET /api/danmaku/events` | 消息提交与 SSE，提交前从 `/api/danmaku/nonce` 获取一次性凭据 |
 | `POST /api/feedback`、`GET /api/feedback/replies` | 浏览器反馈和回复，使用 `X-Feedback-Client` 关联 |
 | `GET /api/sponsors`、`GET /api/site-notices` | 公开鸣谢与站点通知 |
-| `GET /api/admin/content/:section`、`PUT /api/admin/content/:section` | 站长与管理员可维护分区，写入时携带读取响应中的 `ETag` 作为 `If-Match` |
+| `GET /api/admin/content/:section`、`PUT /api/admin/content/:section` | 用同一路径读取的 `ETag` 作为写入时的 `If-Match`；其他分区的修改不影响该版本 |
 | `/api/admin/session`、`/api/admin/accounts`、`/api/admin/danmaku/*` | 登录会话、账号管理与按角色授权的弹幕管理 |
+
+可玩情况 (`playability`)、总进度 (`gameplay`) 和私有仓库 (`privateprojects`) 也有各自的版本。整份路线 (`roadmap`) 和全文 (`/api/admin/content`) 使用聚合版本；其中任一字段被更新，旧的聚合版本就不能保存。收到 `412` 时先重读同一范围并合并草稿。
 
 ### 无公开仓库地址的进度记录
 

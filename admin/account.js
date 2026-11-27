@@ -4,6 +4,7 @@
   const byId = id => document.getElementById(id);
   const endpoint = '/api/admin/session';
   const profileEndpoint = '/api/admin/account/profile';
+  const accountsEndpoint = '/api/admin/accounts';
 
   function diagnosticId(response, body) {
     const candidates = [response?.headers?.get('X-Request-ID'), body?.requestId];
@@ -45,6 +46,9 @@
   let accountsBusy = false;
   let accountsLoaded = false;
   let accountRows = [];
+  // Drafts belong to this document and login, not browser storage or the list DOM.
+  const roleDrafts = new Map();
+  let roleSessionEnded = false;
   let pendingAccountAction = null;
   let initialized = false;
 
@@ -92,8 +96,19 @@
     target.textContent = text;
   }
 
+  function changedSession() {
+    return Object.assign(new Error('请重新登录。'), { status: 401 });
+  }
+
+  function endRoleSession() {
+    roleSessionEnded = true;
+    roleDrafts.clear();
+    renderAccountRows();
+  }
+
   function announceError(target, error, fallback) {
     if (error.status === 401) {
+      endRoleSession();
       setStatus(target, 'error', '登录状态已失效，正在返回登录页…');
       window.location.replace('/admin/login');
       return;
@@ -143,17 +158,25 @@
     if (changed) setStatus(byId('profile-status'), 'success', '个人资料已保存。');
   }
 
+  function canAssignRole(row, actor = account) {
+    return !roleSessionEnded && !actor.needsPasswordChange && row.id !== actor.id && (
+      actor.role === 'owner' || (actor.role === 'admin' && ['moderator', 'user'].includes(row.role))
+    );
+  }
+
   function renderRoleSelect(current, editable) {
     const select = document.createElement('select');
     select.setAttribute('aria-label', `${current.username}的角色`);
     const availableRoles = editable
       ? account.role === 'owner' ? roleValues : ['moderator', 'user']
       : [current.role];
+    const draftRole = roleDrafts.get(current.id)?.role;
+    const selection = availableRoles.includes(draftRole) ? draftRole : current.role;
     for (const role of availableRoles) {
       const option = document.createElement('option');
       option.value = role;
       option.textContent = roleLabel(role);
-      option.selected = role === current.role;
+      option.selected = role === selection;
       select.append(option);
     }
     select.disabled = !editable;
@@ -252,6 +275,7 @@
           method: 'DELETE', body: { confirmUsername: target.username },
         });
         if (result?.deleted !== true || result.uid !== target.uid) throw new Error('服务器未确认账户删除。');
+        roleDrafts.delete(target.id);
         accountRows = accountRows.filter(row => row.id !== target.id);
         renderAccountRows();
         pendingAccountAction = null;
@@ -288,57 +312,43 @@
     const actionCell = document.createElement('td');
     const status = document.createElement('span');
     const actions = document.createElement('form');
-    const assignable = row.id !== account.id && (
-      account.role === 'owner' || (['moderator', 'user'].includes(row.role) && account.role === 'admin')
-    );
+    const assignable = canAssignRole(row);
     const select = renderRoleSelect(row, assignable);
     const save = document.createElement('button');
     status.className = 'account-role-status';
     status.setAttribute('role', 'status');
-    status.dataset.tone = 'neutral';
-    if (!row.id && !row.username) {
-      status.textContent = '账户信息不完整';
-    } else if (row.needsPasswordChange) {
-      status.textContent = '等待首次设置密码';
-    } else {
-      status.textContent = '正常';
-    }
+    const accountState = !row.id && !row.username ? '账户信息不完整' : row.needsPasswordChange ? '等待首次设置密码' : '正常';
     actions.className = 'account-role-form';
     actions.noValidate = true;
     save.type = 'submit';
     save.className = 'button account-role-save';
     save.textContent = '保存角色';
-    save.disabled = true;
     save.hidden = !assignable;
-    select.addEventListener('change', () => { save.disabled = accountsBusy || select.value === row.role; });
-    actions.addEventListener('submit', async event => {
-      event.preventDefault();
-      if (!assignable || accountsBusy || select.value === row.role) return;
-      const nextRole = select.value;
-      accountsBusy = true;
-      save.disabled = true;
-      select.disabled = true;
-      setStatus(status, 'neutral', '正在保存…');
-      try {
-        const result = await request(`/api/admin/accounts/${encodeURIComponent(row.id)}`, {
-          method: 'PATCH', body: { role: nextRole },
-        });
-        if (result?.account?.id !== row.id || result.account.role !== nextRole) {
-          throw new Error('服务器未确认角色变更。');
-        }
-        row.role = result.account.role;
-        setStatus(status, 'success', '角色已保存。');
-        setStatus(byId('accounts-status'), 'success', `已更新 ${row.username} 的角色。`);
-      } catch (error) {
-        select.value = row.role;
-        announceError(status, error, '角色保存失败，请重试。');
-      } finally {
-        accountsBusy = false;
-        select.disabled = !assignable;
-        save.disabled = !assignable || select.value === row.role;
-        renderAccountRows();
+    function syncRoleDraft() {
+      const draft = roleDrafts.get(row.id);
+      const changedOnServer = draft && row.role !== draft.baseRole;
+      save.disabled = !assignable || accountsBusy || !draft;
+      if (changedOnServer) {
+        setStatus(status, 'error', `当前角色：${roleLabel(row.role)}。草稿：${roleLabel(draft.role)}（未保存）。`);
+      } else {
+        setStatus(status, 'neutral', draft ? '角色有未保存的修改。' : accountState);
       }
+    }
+    select.addEventListener('change', () => {
+      if (!canAssignRole(row)) return;
+      if (select.value === row.role) roleDrafts.delete(row.id);
+      else roleDrafts.set(row.id, { role: select.value, baseRole: roleDrafts.get(row.id)?.baseRole ?? row.role });
+      syncRoleDraft();
     });
+    actions.addEventListener('submit', event => {
+      event.preventDefault();
+      const draft = roleDrafts.get(row.id);
+      if (!canAssignRole(row) || accountsBusy || !draft) return;
+      save.disabled = select.disabled = true;
+      setStatus(status, 'neutral', '正在核对角色…');
+      return saveRoleDraft(row.id, draft);
+    });
+    syncRoleDraft();
     roleCell.append(select);
     statusCell.append(status);
     actions.append(save);
@@ -370,33 +380,115 @@
     return tr;
   }
 
+  async function verifyRoleActor() {
+    const session = await request(endpoint);
+    if (roleSessionEnded || session?.authenticated === false) throw changedSession();
+    const actor = session?.account;
+    if (session?.authenticated !== true || typeof actor?.id !== 'string' || !actor.id || !Object.hasOwn(roleNames, actor.role)) {
+      throw new Error('未能确认当前登录身份，请重试。');
+    }
+    if (actor.id !== account.id) throw changedSession();
+  }
+
+  async function readAccountRows() {
+    const result = await request(accountsEndpoint);
+    if (!Array.isArray(result?.accounts)
+      || !result.accounts.every(row => row && typeof row.id === 'string' && typeof row.username === 'string' && Object.hasOwn(roleNames, row.role))) {
+      throw new Error('服务器返回的账户列表格式有误。');
+    }
+    return result.accounts.map(row => ({
+      id: row.id, uid: Number.isSafeInteger(row.uid) && row.uid > 0 ? row.uid : null,
+      username: row.username, nickname: typeof row.nickname === 'string' ? row.nickname : '',
+      role: row.role, needsPasswordChange: row.needsPasswordChange === true,
+    }));
+  }
+
+  function acceptAccountRows(rows) {
+    // This is the complete server list, not the local search result.
+    if (roleDrafts.size) {
+      const ids = new Set(rows.map(row => row.id));
+      if (!ids.has(account.id)) throw new Error('未能确认完整的账户名单，草稿仍保留。');
+      for (const id of roleDrafts.keys()) if (!ids.has(id)) roleDrafts.delete(id);
+    }
+    accountRows = rows;
+    accountsLoaded = true;
+  }
+
+  async function readRoleTarget(id, role) {
+    await verifyRoleActor();
+    const rows = await readAccountRows();
+    if (roleSessionEnded) throw changedSession();
+    acceptAccountRows(rows);
+    const target = rows.find(row => row.id === id);
+    if (!target) throw new Error('该账号已不在名单中。');
+    const actor = rows.find(row => row.id === account.id);
+    if (!actor || !canAssignRole(target, actor) || (actor.role !== 'owner' && !['moderator', 'user'].includes(role))) {
+      throw new Error('当前账号无权保存这个角色。');
+    }
+    return target;
+  }
+
+  async function saveRoleDraft(id, draft) {
+    const status = byId('accounts-status');
+    accountsBusy = true;
+    let message;
+    let failure;
+    try {
+      let target = await readRoleTarget(id, draft.role);
+      if (target.role !== draft.baseRole) {
+        const currentRole = target.role;
+        const action = currentRole === draft.role
+          ? '服务器角色与草稿相同。要清除这条本地草稿吗？不会再次写入。'
+          : `要将角色改为草稿中的「${roleLabel(draft.role)}」吗？`;
+        if (!window.confirm(`${target.username} 的服务器角色已变为「${roleLabel(currentRole)}」。${action}`)) return;
+        target = await readRoleTarget(id, draft.role);
+        if (target.role !== currentRole) throw new Error('确认期间服务器角色又有变化，草稿尚未提交。请核对后重试。');
+      }
+      if (roleSessionEnded || roleDrafts.get(id) !== draft) return;
+      if (target.role === draft.role) {
+        roleDrafts.delete(id);
+        message = '服务器角色与草稿相同，已清除这条本地草稿。';
+        return;
+      }
+      const result = await request(`${accountsEndpoint}/${encodeURIComponent(id)}`, {
+        method: 'PATCH', body: { role: draft.role },
+      });
+      if (roleSessionEnded) return;
+      if (result?.account?.id !== id || result.account.role !== draft.role) throw new Error('服务器未确认角色变更。');
+      target.role = result.account.role;
+      if (roleDrafts.get(id) === draft) roleDrafts.delete(id);
+      message = `已更新 ${target.username} 的角色。`;
+    } catch (error) {
+      failure = error;
+    } finally {
+      accountsBusy = false;
+      renderAccountRows();
+      if (failure) announceError(status, failure, '角色保存失败，请重试。');
+      else if (message) setStatus(status, 'success', message);
+    }
+  }
+
   async function loadAccounts() {
-    if (!canManageAccounts || accountsBusy) return;
+    if (!canManageAccounts || accountsBusy || roleSessionEnded) return;
+    const status = byId('accounts-status');
     accountsBusy = true;
     byId('accounts-reload').disabled = true;
     byId('create-account-submit').disabled = true;
-    setStatus(byId('accounts-status'), 'neutral', '正在读取账户…');
+    setStatus(status, 'neutral', '正在读取账户…');
+    let failure;
     try {
-      const result = await request('/api/admin/accounts');
-      if (!Array.isArray(result?.accounts)
-        || !result.accounts.every(row => row && typeof row.id === 'string' && typeof row.username === 'string' && Object.hasOwn(roleNames, row.role))) {
-        throw new Error('服务器返回的账户列表格式有误。');
-      }
-      accountRows = result.accounts.map(row => ({
-        id: row.id, uid: Number.isSafeInteger(row.uid) && row.uid > 0 ? row.uid : null,
-        username: row.username, nickname: typeof row.nickname === 'string' ? row.nickname : '',
-        role: row.role, needsPasswordChange: row.needsPasswordChange === true,
-      }));
-      renderAccountRows();
-      accountsLoaded = true;
-      setStatus(byId('accounts-status'), 'success', `已读取 ${accountRows.length} 个账户。`);
+      if (roleDrafts.size) await verifyRoleActor();
+      const rows = await readAccountRows();
+      if (!roleSessionEnded) acceptAccountRows(rows);
     } catch (error) {
-      announceError(byId('accounts-status'), error, '读取账户失败，请重试。');
+      failure = error;
     } finally {
       accountsBusy = false;
       byId('accounts-reload').disabled = false;
       byId('create-account-submit').disabled = false;
       renderAccountRows();
+      if (failure) announceError(status, failure, '读取账户失败，请重试。');
+      else if (!roleSessionEnded) setStatus(status, 'success', `已读取 ${accountRows.length} 个账户。`);
     }
   }
 
@@ -556,6 +648,7 @@
         headers: { Accept: 'application/json' },
       });
       if (!response.ok) throw new Error('退出登录未能完成。');
+      endRoleSession();
       window.location.replace('/admin/login');
     } catch (error) {
       button.disabled = false;
@@ -600,6 +693,10 @@
     return dirty ? '创建账号表单' : '';
   }
 
+  function managementDraftLabel() {
+    return creationDraftLabel() || (roleDrafts.size ? '账号角色' : '');
+  }
+
   function registerViews() {
     const shell = window.AdminShell;
     if (!shell || !byId('admin-layout')) return;
@@ -626,7 +723,7 @@
         byId('create-account-panel').hidden = route.part !== 'create' || !canCreateAccounts;
         if (showList && !accountsLoaded && !accountsBusy) loadAccounts();
       },
-      dirty: creationDraftLabel,
+      dirty: managementDraftLabel,
     });
   }
 
@@ -696,11 +793,16 @@
       });
     });
     window.addEventListener('beforeunload', event => {
-      if (window.AdminShell?.leaveConfirmed || !(passwordDraftLabel() || creationDraftLabel())) return;
+      if (window.AdminShell?.leaveConfirmed || !(passwordDraftLabel() || managementDraftLabel())) return;
       event.preventDefault();
       event.returnValue = '';
     });
     window.addEventListener('pagehide', () => avatarCropper?.dispose(), { once: true });
+    window.addEventListener('pagehide', event => {
+      if (!event.persisted || !roleDrafts.size) return;
+      roleDrafts.clear();
+      renderAccountRows();
+    });
   }
 
   async function initialize() {

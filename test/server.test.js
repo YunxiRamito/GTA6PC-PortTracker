@@ -203,6 +203,42 @@ test('functional backend stores edits, enforces roles, and serves community rout
   assert.equal((await send(origin, '/api/traffic/history')).status, 200);
 });
 
+test('editorial ETags isolate pages and roadmap subresources on the local server', async t => {
+  const { directory, cleanup } = await runtime();
+  const username = 'local-owner-example', password = randomBytes(24).toString('base64url');
+  const accounts = createAdminAccounts({ filePath: path.join(directory, 'accounts.json'),
+    bootstrap: { username, password }, confirmedInitialOwner: username });
+  await accounts.initialize();
+  const origin = await listener(t, createSiteServer({ runtimeDir: directory, accounts, liveGitHub: false }));
+  t.after(cleanup);
+  const base = '/api/admin/content';
+  assert.equal((await send(origin, `${base}/privateprojects`)).status, 401);
+  const cookie = sessionCookie(await send(origin, '/api/admin/session', { method: 'POST', data: { username, password } }));
+  const read = async (part = '') => {
+    const response = await send(origin, base + part, { cookie });
+    return { etag: response.headers.get('etag'), ...(await json(response, 200)) };
+  };
+  const write = (part, etag, data) => send(origin, base + part, { method: 'PUT', data, cookie, headers: { 'If-Match': etag } });
+  const [full, roadmap, home, playability, privateprojects] = await Promise.all(
+    ['', '/roadmap', '/home', '/playability', '/privateprojects'].map(read));
+  assert.equal(new Set([full, roadmap, home, playability, privateprojects].map(row => row.etag)).size, 5);
+  const play = { playability: { status: 'unstable', summary: '本地测试：加载不稳定。' } };
+  const archive = { privateRepositories: privateprojects.content.privateRepositories.slice(1) };
+  assert.equal((await write('/playability', full.etag, play)).status, 412);
+  assert.equal((await write('/playability', playability.etag, archive)).status, 422);
+  await json(await write('/home', home.etag, { ...home.content, latestUpdate: '本地测试：首页分区。' }), 200);
+  await json(await write('/playability', playability.etag, play), 200);
+  await json(await write('/privateprojects', privateprojects.etag, archive), 200);
+  assert.equal((await write('/playability', playability.etag, play)).status, 412);
+  assert.equal((await write('/roadmap', roadmap.etag, roadmap.content)).status, 412);
+  assert.equal((await write('', full.etag, full.content)).status, 412);
+  assert.deepEqual((await read('/playability')).content, play);
+  assert.deepEqual((await read('/privateprojects')).content, archive);
+  const saved = createContentStore({ filePath: path.join(directory, 'content.json') });
+  assert.equal(saved.read('privateprojects').etag, (await read('/privateprojects')).etag);
+  assert.equal(saved.read('home').content.latestUpdate, '本地测试：首页分区。');
+});
+
 test('screenshot preview responds from fixtures and rejects writes', async t => {
   const server = createDemoServer();
   const origin = await listener(t, server);
