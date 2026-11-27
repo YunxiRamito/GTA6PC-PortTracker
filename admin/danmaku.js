@@ -452,12 +452,12 @@
     communityVoteThreshold.disabled = !settingsSaved || busy || sessionExpired;
     ratePerMinute.disabled = !settingsSaved || busy || sessionExpired;
     rateMinInterval.disabled = !settingsSaved || busy || sessionExpired;
-    settingsReload.disabled = busy;
+    settingsReload.disabled = settingsLoading || settingsSaving;
     settingsSave.disabled = busy || !settingsSaved || !isSettingsDirty() || sessionExpired;
     scheduledEnabled.disabled = !scheduledSaved || busy || sessionExpired;
     scheduledInterval.disabled = !scheduledSaved || busy || sessionExpired;
     scheduledMessages.disabled = !scheduledSaved || busy || sessionExpired;
-    scheduledReload.disabled = busy;
+    scheduledReload.disabled = scheduledLoading || scheduledSaving;
     scheduledSave.disabled = busy || !scheduledSaved || !isScheduledDirty() || sessionExpired;
     updateSettingsState();
     updateScheduledState();
@@ -791,8 +791,9 @@
     throw new Error('服务器返回的列表格式有误。');
   }
 
+  // Reads only replace their own form and can overlap mutations in another panel.
   async function loadSettings() {
-    if (settingsLoading || settingsSaving || scheduledSaving || writing) return;
+    if (settingsLoading || settingsSaving) return;
     settingsLoading = true;
     setSettingsMessage('neutral', '正在读取弹幕设置…');
     updateControls();
@@ -809,7 +810,7 @@
   }
 
   async function loadScheduledConfig() {
-    if (scheduledLoading || scheduledSaving || settingsSaving || writing) return;
+    if (scheduledLoading || scheduledSaving) return;
     scheduledLoading = true;
     setScheduledMessage('neutral', '正在读取自动管理员消息配置…');
     updateControls();
