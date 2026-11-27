@@ -1,4 +1,41 @@
 /* Shared Port Tracker masthead. Keep public and console surface tokens separate. */
+/* site-scrollbars:start */
+/* Keep overflow and scrollbar visibility under each container's native control. */
+:root {
+  --scrollbar-track: #221b2f;
+  --scrollbar-thumb: #a789af;
+  --scrollbar-thumb-hover: #cea6ca;
+  --scrollbar-thumb-active: #f1b6d0;
+}
+
+@media not all and (forced-colors: active) {
+  /* Inherit the colors for nested scrollers without shrinking native hit targets. */
+  :root { scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track); }
+
+  @media (hover: hover) and (pointer: fine) {
+    @supports selector(::-webkit-scrollbar-thumb) {
+      /* A non-auto scrollbar-color would override the rounded WebKit parts. */
+      :root { scrollbar-color: auto; }
+      ::-webkit-scrollbar { width: 12px; height: 12px; }
+      ::-webkit-scrollbar-track { border-radius: 999px; background-color: var(--scrollbar-track); }
+      ::-webkit-scrollbar-corner { background-color: transparent; }
+      ::-webkit-scrollbar-thumb {
+        border: 2px solid transparent;
+        border-radius: 999px;
+        background-color: var(--scrollbar-thumb);
+        background-clip: padding-box;
+      }
+      ::-webkit-scrollbar-thumb:hover { background-color: var(--scrollbar-thumb-hover); }
+      ::-webkit-scrollbar-thumb:active { background-color: var(--scrollbar-thumb-active); }
+
+      @media (prefers-reduced-motion: no-preference) {
+        ::-webkit-scrollbar-thumb { transition: background-color 160ms cubic-bezier(.22, 1, .36, 1); }
+      }
+    }
+  }
+}
+/* site-scrollbars:end */
+
 .site-topbar, .chapter-menu {
   --paper: #fff1e3;
   --muted: #cfc3e9;

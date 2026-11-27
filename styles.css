@@ -38,8 +38,6 @@
   --section-width: 1216px;
 }
 *, *::before, *::after { box-sizing: border-box; }
-html { scrollbar-width: none; }
-html::-webkit-scrollbar { display: none; }
 [hidden] { display: none !important; }
 body { margin: 0; background: var(--ink); color: var(--paper); font: 400 16px/1.55 var(--body); }
 a { color: inherit; text-decoration: none; }

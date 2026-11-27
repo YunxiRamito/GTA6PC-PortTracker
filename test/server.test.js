@@ -213,6 +213,43 @@ test('screenshot preview responds from fixtures and rejects writes', async t => 
   assert.equal((await send(origin, '/about/')).status, 200);
 });
 
+test('both entry points serve the shared scrollbar theme on every public page', async t => {
+  const sharedCss = '/assets/site-topbar.css';
+  const themeBlock = /\/\* site-scrollbars:start \*\/[\s\S]*?\/\* site-scrollbars:end \*\//;
+  const overrides = /\bscrollbar-(?:color|width)\s*:|::-webkit-scrollbar\b/i;
+  for (const mode of ['site', 'preview']) {
+    await t.test(mode, async t => {
+      const { directory, cleanup } = mode === 'site' ? await runtime() : {};
+      const origin = await listener(t, mode === 'site'
+        ? createSiteServer({ runtimeDir: directory, liveGitHub: false })
+        : createDemoServer());
+      if (cleanup) t.after(cleanup);
+
+      const stylesheets = new Set();
+      for (const route of ['/', '/about/', '/feedback/', '/thanks/', '/can-i-run/']) {
+        const page = await send(origin, route);
+        assert.equal(page.status, 200, route);
+        const links = [...(await page.text()).matchAll(/<link\b[^>]*\brel="stylesheet"[^>]*\bhref="([^"]+)"/g)].map(([, href]) => href);
+        assert.ok(links.some(href => new URL(href, origin).pathname === sharedCss), `${route} must load ${sharedCss}`);
+        for (const href of links) stylesheets.add(href);
+      }
+      for (const href of stylesheets) {
+        const stylesheet = await send(origin, href);
+        assert.equal(stylesheet.status, 200, href);
+        assert.match(stylesheet.headers.get('content-type'), /^text\/css\b/i);
+        const css = await stylesheet.text();
+        if (new URL(href, origin).pathname === sharedCss) {
+          const theme = css.match(themeBlock)?.[0];
+          assert.ok(theme, 'The shared stylesheet must contain the canonical scrollbar theme');
+          assert.match(theme, /scrollbar-color\s*:/);
+          assert.match(theme, /::-webkit-scrollbar-thumb\b/);
+        }
+        assert.doesNotMatch(css.replace(themeBlock, ''), overrides, `${href} overrides the shared theme`);
+      }
+    });
+  }
+});
+
 test('both entry points localize records and feeds without changing IDs, URLs, or scores', async t => {
   for (const mode of ['site', 'preview']) {
     await t.test(mode, async t => {

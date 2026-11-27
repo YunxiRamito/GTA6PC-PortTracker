@@ -45,7 +45,6 @@
   width: min(var(--traffic-width), calc(100vw - var(--traffic-left) - var(--traffic-right)));
   max-height: calc(100dvh - var(--traffic-gap) - env(safe-area-inset-bottom, 0px) - 49px);
   overflow-y: auto;
-  scrollbar-width: thin;
   display: grid;
   gap: .55rem;
   padding: .65rem .75rem;
