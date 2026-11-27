@@ -86,6 +86,6 @@ node tools/check-release.js
 
 本站使用 Portwatch VI 的进度评分方法，包括七级里程碑、基础准备权重、阶段内插值，以及进入游戏后的帧率和稳定性计分。`assets/port-score.js` 是按这一方法为公开仓库重新编写的实现，保留了本站的中文阶段、并列顺序和汇总字段。[Portwatch VI](https://github.com/4lwayz/portwatch-vi) · [固定修订的评分方法](https://github.com/4lwayz/portwatch-vi/blob/98f78dde8ed87ccb9bb67588e160d1aab7ca814d/assets/js/scoring.js)
 
-字体、滚动和图标分别使用 Barlow、Lenis、Microsoft Fluent UI System Icons 与 Primer Octicons。版本、来源和许可正文见[来源与许可清单](docs/provenance.md)。
+字体与图标使用 Barlow、Microsoft Fluent UI System Icons 和 Primer Octicons。Lenis 提供平滑滚动。仅有精细指针（如鼠标）的设备使用浏览器原生滚动条；支持触屏等粗指针输入的设备在浏览器支持时启用本站托管的 OverlayScrollbars 2.17.0，以便直接拖动滑块。版本、来源和许可正文见[来源与许可清单](docs/provenance.md)。
 
 本站为独立社区项目，与 Rockstar Games 无关联。

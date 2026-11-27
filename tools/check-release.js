@@ -28,12 +28,15 @@ const allowlist = [
   'assets/hardware-check.css', 'assets/hardware-check.js', 'assets/i18n-hardware-check.js',
   'assets/hero-opening.css', 'assets/i18n-home.js', 'assets/i18n-pages.js', 'assets/i18n-widgets.js', 'assets/i18n.css', 'assets/i18n.js',
   'assets/motion.js', 'assets/navigation.js', 'assets/port-score.js',
-  'assets/progress-motion.css', 'assets/project-progress.js', 'assets/site-content.js', 'assets/site-topbar.css',
+  'assets/progress-motion.css', 'assets/project-progress.js', 'assets/site-content.js',
+  'assets/site-scrollbars.css', 'assets/site-scrollbars.js', 'assets/site-topbar.css',
   'assets/site-widgets.css', 'assets/traffic-history.js', 'assets/traffic.js',
   'assets/ui/Fluent-LICENSE.txt', 'assets/ui/OFL-Barlow.txt', 'assets/ui/OFL-BarlowCondensed.txt', 'assets/ui/Octicons-LICENSE.txt',
   'assets/ui/barlow-400-latin.woff2', 'assets/ui/barlow-700-latin.woff2',
   'assets/ui/barlow-condensed-700-latin.woff2', 'assets/ui/barlow-condensed-900-latin.woff2',
   'assets/ui/fluent.svg', 'assets/ui/octicons.svg', 'assets/vendor/Lenis-LICENSE.txt', 'assets/vendor/lenis.min.js',
+  'assets/vendor/OverlayScrollbars-LICENSE.txt', 'assets/vendor/OverlayScrollbars-PROVENANCE.txt',
+  'assets/vendor/overlayscrollbars-2.17.0.min.css', 'assets/vendor/overlayscrollbars-2.17.0.min.js',
   'docs/demo-screenshot.png', 'docs/provenance.md', 'fixtures/demo.js', 'fixtures/hardware-demo.js',
   'scripts/bootstrap-account-owner.js', 'test/hardware-check.test.js', 'test/i18n.test.js', 'test/port-score.test.js', 'test/server.test.js', 'tools/check-release.js', 'tools/sync-core.cjs', 'tools/sync-from-site.cjs',
 ].sort();
@@ -63,10 +66,15 @@ const loopbackHosts = new Set(['127.0.0.1', 'localhost']);
 const hardwareReferenceHost = 'gta6recomp.com';
 const hardwareReference = 'https://' + hardwareReferenceHost + '/can-i-run';
 const hardwareReferenceFiles = new Set(['hardware-check.html', 'fixtures/hardware-demo.js']);
+const scrollbarBuilds = new Set([
+  'assets/vendor/overlayscrollbars-2.17.0.min.css',
+  'assets/vendor/overlayscrollbars-2.17.0.min.js',
+]);
 
 function permittedHost(file, host) {
   if (namespaceHosts.has(host)) return true;
   if (file === 'README.md' || file === 'docs/provenance.md') return markdownHosts.has(host);
+  if (file === 'assets/vendor/OverlayScrollbars-PROVENANCE.txt') return host === 'github.com' || host === 'registry.npmjs.org';
   if (/^assets\/ui\/OFL-.*\.txt$/.test(file)) return licenseHosts.has(host);
   if (file === 'api/dashboard.js') return host === 'api.github.com' || host === 'github.com';
   if (file === 'assets/navigation.js') return host === 'github.com' || loopbackHosts.has(host);
@@ -78,7 +86,9 @@ function permittedHost(file, host) {
 function list(relative = '') {
   const found = [];
   for (const entry of fs.readdirSync(path.resolve(root, relative), { withFileTypes: true })) {
-    if (!relative && entry.isDirectory() && !entry.isSymbolicLink() && (entry.name === '.git' || entry.name === '.preview')) continue;
+    // A linked worktree stores its Git directory pointer in a regular file.
+    if (!relative && entry.name === '.git' && (entry.isDirectory() || entry.isFile())) continue;
+    if (!relative && entry.name === '.preview' && entry.isDirectory() && !entry.isSymbolicLink()) continue;
     const file = relative ? `${relative}/${entry.name}` : entry.name;
     assert(!entry.isSymbolicLink(), `Unexpected link: ${file}`);
     if (entry.isDirectory() && directories.has(file)) found.push(...list(file));
@@ -123,7 +133,11 @@ function scan(file) {
     const first = text.matchAll(pattern).next().value;
     if (first) flag(category, first.index);
   }
+  // Allow the author URL only in the leading notice of the pinned vendor builds.
+  const scrollbarNoticeEnd = scrollbarBuilds.has(file) && text.startsWith('/*!') ? text.indexOf('*/') : -1;
   for (const match of text.matchAll(/\b(?:https?|wss?):\/\/([a-z0-9.-]+)(?=[\s/?#:'"`)>]|$)/gi)) {
+    if (match.index < scrollbarNoticeEnd && match[0] === 'https:' + '//github.com' &&
+        text.startsWith('/KingSora\n', match.index + match[0].length)) continue;
     const host = match[1].toLowerCase();
     if (host === hardwareReferenceHost) {
       const endpoint = text.slice(match.index).match(/^[^\s"'`<>()]+/)?.[0];

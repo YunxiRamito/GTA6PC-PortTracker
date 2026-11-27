@@ -1,0 +1,82 @@
+/* OverlayScrollbars' feature probe, externalized for style-src 'self'. */
+.os-environment {
+  scroll-behavior: auto !important;
+  position: fixed;
+  opacity: 0;
+  visibility: hidden;
+  overflow: scroll;
+  height: 200px;
+  width: 200px;
+  z-index: -1;
+}
+.os-environment div { width: 200%; height: 200%; margin: 10px 0; }
+.os-environment-scrollbar-hidden { scrollbar-width: none !important; }
+@supports not (scrollbar-width: none) {
+  .os-environment-scrollbar-hidden::-webkit-scrollbar,
+  .os-environment-scrollbar-hidden::-webkit-scrollbar-corner {
+    appearance: none !important;
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+  }
+}
+
+/* Only the coarse-input enhancement uses these rails. Its palette is shared
+   with the native desktop scrollbars in site-topbar.css / console.css. */
+.os-scrollbar.os-theme-port-tracker {
+  --os-size: 24px;
+  --os-padding-axis: 3px;
+  --os-padding-perpendicular: 0px;
+  --os-handle-perpendicular-size: 100%;
+  --os-handle-perpendicular-size-hover: 100%;
+  --os-handle-perpendicular-size-active: 100%;
+  --os-handle-min-size: 40px;
+  --os-handle-max-size: none;
+  --os-handle-border-radius: 999px;
+  --os-handle-bg: var(--scrollbar-thumb, #a789af);
+  --os-handle-bg-hover: var(--scrollbar-thumb-hover, #cea6ca);
+  --os-handle-bg-active: var(--scrollbar-thumb-active, #f1b6d0);
+  --scrollbar-ease: cubic-bezier(.22, 1, .36, 1);
+  z-index: 2;
+  transition: opacity 160ms var(--scrollbar-ease), visibility 160ms;
+}
+.os-theme-port-tracker > .os-scrollbar-track::before {
+  background: var(--scrollbar-track, #221b2f);
+  opacity: .7;
+  border-radius: 999px;
+  pointer-events: none;
+}
+.os-theme-port-tracker .os-scrollbar-handle {
+  box-sizing: border-box;
+  border: solid transparent;
+  background-clip: padding-box;
+  cursor: grab;
+  transition: background-color 160ms var(--scrollbar-ease);
+}
+.os-theme-port-tracker .os-scrollbar-handle:active { cursor: grabbing; }
+.os-theme-port-tracker.os-scrollbar-vertical > .os-scrollbar-track::before { left: 14px; right: 2px; }
+.os-theme-port-tracker.os-scrollbar-vertical .os-scrollbar-handle { border-width: 0 2px 0 14px; }
+.os-theme-port-tracker.os-scrollbar-horizontal > .os-scrollbar-track::before { top: 14px; bottom: 2px; }
+.os-theme-port-tracker.os-scrollbar-horizontal .os-scrollbar-handle { border-width: 14px 0 2px; }
+/* Keep the grab area off of the group action buttons. */
+.qq-popover:has(> .os-scrollbar-vertical.os-scrollbar-visible) { padding-inline-end: 24px; }
+
+body > .os-theme-port-tracker.site-scrollbar-document { z-index: 10; }
+/* Override the vendor's cornerless rail too: keep the grab target clear of
+   the sticky announcement/topbar and the floating dock. */
+body > .os-theme-port-tracker.site-scrollbar-document.os-scrollbar-vertical {
+  top: max(var(--site-topbar-height, 0px), env(safe-area-inset-top, 0px));
+  bottom: max(52px, env(safe-area-inset-bottom, 0px));
+  right: env(safe-area-inset-right, 0px);
+}
+body > .os-theme-port-tracker.site-scrollbar-document.os-scrollbar-horizontal {
+  bottom: env(safe-area-inset-bottom, 0px);
+  left: env(safe-area-inset-left, 0px);
+  right: env(safe-area-inset-right, 0px);
+}
+html.menu-open .site-scrollbar-document,
+body:has(dialog:modal) > .site-scrollbar-document { visibility: hidden; }
+@media (prefers-reduced-motion: reduce) {
+  .os-scrollbar.os-theme-port-tracker,
+  .os-theme-port-tracker .os-scrollbar-handle { transition: none; }
+}

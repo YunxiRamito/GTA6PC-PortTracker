@@ -31,7 +31,7 @@ test('public templates load their dictionaries and optional history translator i
     assert.deepEqual(scripts.slice(0, locales.length), locales, page);
     if (hardware) {
       assert.ok(!scripts.includes('/assets/danmaku.js'));
-      assert.equal(scripts.at(-1), '/assets/hardware-check.js');
+      assert.deepEqual(scripts.slice(-2), ['/assets/hardware-check.js', '/assets/site-scrollbars.js']);
     } else {
       assert.equal(scripts[scripts.indexOf('/assets/danmaku.js') + 1], '/assets/danmaku-translate.js', page);
     }

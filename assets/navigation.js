@@ -66,8 +66,61 @@
     cluster.append(link);
   }
 
+  function mountBackToTop() {
+    // The old public mastheads use these two modes; leave console and login alone.
+    if (!['inline', 'overlay'].includes(topbar?.dataset.siteTopbar) || document.getElementById('siteBackToTop')) return;
+
+    const button = document.createElement('button');
+    const key = 'pages.home.backToTop';
+    const label = t(key, '返回顶部');
+    button.type = 'button';
+    button.id = 'siteBackToTop';
+    button.className = 'site-back-to-top';
+    button.setAttribute('aria-label', label);
+    button.setAttribute('data-i18n-aria-label', key);
+    button.setAttribute('data-i18n-title', key);
+    button.title = label;
+    button.setAttribute('inert', '');
+    const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    arrow.classList.add('ui-icon');
+    arrow.setAttribute('aria-hidden', 'true');
+    arrow.setAttribute('focusable', 'false');
+    const use = document.createElementNS(arrow.namespaceURI, 'use');
+    use.setAttribute('href', '/assets/ui/fluent.svg#arrow-down');
+    arrow.append(use);
+    button.append(arrow);
+
+    // The homepage has a focusable top anchor; the older public subpages have a focusable main.
+    const pageStart = () => document.getElementById('top') ?? document.querySelector('body > main');
+    const moveFocus = target => target?.focus({ preventScroll: true });
+    function syncVisibility() {
+      const hide = !(window.scrollY >= window.innerHeight);
+      if (button.hasAttribute('inert') === hide) return;
+      if (hide && document.activeElement === button) moveFocus(nav?.querySelector('.site-brand') ?? pageStart());
+      button.toggleAttribute('inert', hide);
+    }
+
+    button.addEventListener('click', () => {
+      if (button.hasAttribute('inert')) return;
+      moveFocus(pageStart());
+      const motion = window.PortMotion;
+      const suspendLenis = root.classList.contains('lenis') && typeof motion?.pause === 'function' && typeof motion.resume === 'function';
+      // Stop Lenis's pending wheel animation, then let it resync to the real window position.
+      if (suspendLenis) motion.pause();
+      try { window.scrollTo({ top: 0, behavior: reduced.matches || suspendLenis ? 'instant' : 'smooth' }); }
+      finally { if (suspendLenis) motion.resume(); }
+    });
+
+    document.body.append(button);
+    window.addEventListener('scroll', syncVisibility, { passive: true });
+    window.addEventListener('resize', syncVisibility, { passive: true });
+    window.addEventListener('pageshow', syncVisibility);
+    syncVisibility();
+  }
+
   const publicOrigin = readOrigin(document.querySelector('meta[name="port-tracker-public-origin"]')?.content);
   mountRepositoryLink();
+  mountBackToTop();
 
   if (publicOrigin) {
     for (const link of document.querySelectorAll('[data-site-topbar] [data-site-path], #siteMenu [data-site-path]')) {

@@ -375,3 +375,59 @@ html.menu-open, html.menu-open body { overflow: hidden; }
   background: transparent;
   color: var(--accent);
 }
+
+/* Floating back-to-top, below the public widget dock. */
+.site-back-to-top {
+  --back-top-ease: cubic-bezier(.22, 1, .36, 1);
+  --back-top-edge: clamp(10px, 1.3vw, 18px);
+  position: fixed;
+  left: calc(var(--back-top-edge) + env(safe-area-inset-left, 0px));
+  bottom: calc(var(--back-top-edge) + env(safe-area-inset-bottom, 0px));
+  z-index: 5;
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid #a789af;
+  border-radius: 50%;
+  background-color: #261f35;
+  box-shadow: 0 4px 16px #0a071566;
+  color: #fff1e3;
+  cursor: pointer;
+  touch-action: manipulation;
+  pointer-events: none;
+  visibility: hidden;
+  opacity: 0;
+  transform: translateY(7px);
+  transition: opacity 200ms var(--back-top-ease), transform 200ms var(--back-top-ease),
+    visibility 0s 200ms, background-color 160ms var(--back-top-ease), color 160ms var(--back-top-ease);
+}
+.site-back-to-top:not([inert]) {
+  pointer-events: auto;
+  visibility: var(--site-back-to-top-visibility, visible);
+  opacity: 1;
+  transform: none;
+  transition-delay: 0s;
+}
+.site-back-to-top > .ui-icon { width: 21px; height: 21px; fill: currentColor; transform: rotate(180deg); }
+.site-back-to-top:focus-visible { outline: 2px solid #ffb4a2; outline-offset: 3px; }
+@media (hover: hover) {
+  .site-back-to-top:hover { background-color: #40304e; }
+}
+.site-back-to-top:active { background-color: #f4a1c0; color: #21172e; transform: scale(.94); }
+
+/* Hide immediately under overlays; on narrow screens the expanded dock can reach the left edge. */
+body:has(dialog[open]) > .site-back-to-top { --site-back-to-top-visibility: hidden; }
+@media (max-width: 680px) {
+  body:has(.danmaku-widget[data-open='true'], .danmaku-history[data-open='true'], .danmaku-options[data-open='true'],
+    .danmaku-moderation:not([hidden]), .traffic-board[open]) > .site-back-to-top { --site-back-to-top-visibility: hidden; }
+}
+@starting-style {
+  .site-back-to-top:not([inert]) { opacity: 0; transform: translateY(7px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .site-back-to-top { transition: none; }
+  .site-back-to-top:active { transform: none; }
+}
