@@ -1,5 +1,7 @@
 'use strict';
 
+const { BENCHMARK_PROFILE, BENCHMARK_SEGMENTS, BENCHMARK_FLAGS, scoreProject } = require('../assets/port-score');
+
 const DAY = 24 * 60 * 60 * 1000;
 const SAMPLE_DAY = '2026-01-12';
 const EXPECTED_STEPS = [
@@ -52,6 +54,29 @@ function project(repo, title, type, status, summary, progress, portProgress, evi
   return withCopy({ repo: `demo-workshop/${repo}`, title, type, status, summary, progress, portProgress, evidence: localizedEvidence }, en, ja);
 }
 
+function demoQuality(id, measured) {
+  const { id: profileId, routeId, preset, width, height } = BENCHMARK_PROFILE;
+  const benchmark = { profileId, routeId, preset, width, height,
+    ...Object.fromEntries(BENCHMARK_FLAGS.map(key => [key, false])) };
+  if (measured) {
+    const syntheticFps = [[18, 60, 62], [64, 65, 68], [54, 55, 57]];
+    benchmark.segments = BENCHMARK_SEGMENTS.map((id, index) => ({
+      id, runs: syntheticFps[index].map(fps => ({ frames: fps * 20, seconds: 20 })),
+    }));
+  }
+  return {
+    evidence: {
+      // The loopback URL is a placeholder; the fixture never fetches evidence.
+      level: 'reproduced', sourceUrl: `https://localhost/#${id}`, build: `synthetic-${id}-v5`,
+      setup: 'Synthetic reference profile, native 1080p', observedOn: SAMPLE_DAY,
+    },
+    benchmark,
+    rendering: { segments: BENCHMARK_SEGMENTS.map(id => ({
+      id, severity: measured && id === 'yard' ? 'localized' : 'clean',
+    })) },
+  };
+}
+
 function createFixtures(now) {
   const target = new Date(now + 7 * DAY).toISOString();
   const projects = [
@@ -99,16 +124,16 @@ function createFixtures(now) {
       playability: fieldCopy({ summary: '此页的全部阶段与评分均来自虚构样例。' }, 'summary',
         'All stages and scores on this page come from fictional examples.', 'このページの段階とスコアはすべて架空のサンプルに基づきます。'),
       privateRepositories: [
-        withCopy({ id: 'sample-launch', title: '启动验证样例', summary: '虚构的非公开构建，用于展示进入场景前的验证阶段。',
+        withCopy({ id: 'sample-launch', title: '启动验证样例', summary: '虚构构建：已完成监狱序章验证，含原生 1080p 的画面与帧率样例。',
           sourceLabel: '演示说明', sourceUrl: '#about',
-          portProgress: { gta: { loads: 1, boots: 1, menu: 1, ingame: 0.2 }, verification: 'self-reported' } },
-          { title: 'Startup verification sample', summary: 'A fictional private build illustrating checks before entering a scene.', sourceLabel: 'Demo notes' },
-          { title: '起動検証のサンプル', summary: 'シーンに入る前の検証段階を示す架空の非公開ビルドです。', sourceLabel: 'デモの説明' }),
-        withCopy({ id: 'sample-render', title: '渲染准备样例', summary: '虚构的图形适配实验，目前仅有基础准备记录。',
+          portProgress: { gta: { loads: 1, boots: 1, menu: 1, ingame: 1, prison: 1, qualityV5: demoQuality('sample-launch', true) }, verification: 'verified' } },
+          { title: 'Startup verification sample', summary: 'A fictional prison-intro build with sample rendering and frame-rate measurements at native 1080p.', sourceLabel: 'Demo notes' },
+          { title: '起動検証のサンプル', summary: '刑務所の序章を検証した架空のビルドです。ネイティブ1080pの描画とフレームレートの測定例を含みます。', sourceLabel: 'デモの説明' }),
+        withCopy({ id: 'sample-render', title: '渲染准备样例', summary: '虚构构建：已记录画面表现，参考机帧率待测。',
           sourceLabel: '演示说明', sourceUrl: '#about',
-          portProgress: { groundwork: { shaders: 0.5, graphics: 0.25 }, verification: 'unverified' } },
-          { title: 'Rendering setup sample', summary: 'A fictional graphics compatibility experiment with groundwork records only.', sourceLabel: 'Demo notes' },
-          { title: '描画準備のサンプル', summary: '基盤整備の記録のみがある架空のグラフィックス互換性実験です。', sourceLabel: 'デモの説明' }),
+          portProgress: { gta: { loads: 1, boots: 1, menu: 1, ingame: 1, prison: 1, qualityV5: demoQuality('sample-render', false) }, verification: 'verified' } },
+          { title: 'Rendering setup sample', summary: 'A fictional build with documented rendering and no reference-machine frame-rate runs yet.', sourceLabel: 'Demo notes' },
+          { title: '描画準備のサンプル', summary: '描画は確認済みですが、基準機でのフレームレートは未計測の架空のビルドです。', sourceLabel: 'デモの説明' }),
       ],
       gameplayProgress: withCopy({
         title: '里程碑样例', note: '选择阶段查看对应的演示记录。',
@@ -158,7 +183,9 @@ function createFixtures(now) {
       time: now - (12 - index) * 1800 * 1000, online, totalVisits: traffic.totalVisits - (12 - index) * 16,
     })),
   };
-  const history = [22, 25, 32.5, 40, 46].map((leader, index) => ({ date: `2026-01-${8 + index}`, leader }));
+  // This fixed preview series is synthetic and uses only V5 scores.
+  const sampleLeader = scoreProject(content.roadmap.privateRepositories[0]).score;
+  const history = [15, 30, 35, 50, sampleLeader].map((leader, index) => ({ date: `2026-01-${String(8 + index).padStart(2, '0')}`, leader }));
   const sponsorRows = [
     ['demo-type', ['排版样例', '展示章节标题、卡片和移动端排版。'],
       ['Typography sample', 'Demonstrates headings, cards, and mobile layout.'],

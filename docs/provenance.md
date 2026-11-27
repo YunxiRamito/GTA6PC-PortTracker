@@ -6,13 +6,14 @@
 
 PortWatch VI 只作为进度评分方法和数据结构的参考。`assets/port-score.js` 是独立重写的实现，没有复制 PortWatch 源码；由于固定上游修订未声明可复用许可证，公开仓库不将其代码或未授权素材打包进来。
 
-## Portwatch VI 评分方法
+## 评分 V5 与来源
 
-核对的上游修订为 `98f78dde8ed87ccb9bb67588e160d1aab7ca814d`。该修订的根目录与仓库元数据均未列出复用许可。维护站现有实现采用相同的阶梯、权重和类似的控制结构。公开仓库以新的 JavaScript 实现同一评分方法，并沿用本站的接口与回归用例。[上游仓库](https://github.com/4lwayz/portwatch-vi) · [固定修订](https://github.com/4lwayz/portwatch-vi/tree/98f78dde8ed87ccb9bb67588e160d1aab7ca814d) · [评分方法](https://github.com/4lwayz/portwatch-vi/blob/98f78dde8ed87ccb9bb67588e160d1aab7ca814d/assets/js/scoring.js)
+旧版分段与证据组织参考 PortWatch VI。已核对的固定上游修订未列出复用许可；本站 V5 沿用独立实现和自有规则，不分发上游代码或素材。[上游仓库](https://github.com/4lwayz/portwatch-vi) · [固定修订](https://github.com/4lwayz/portwatch-vi/tree/98f78dde8ed87ccb9bb67588e160d1aab7ca814d) · [评分方法](https://github.com/4lwayz/portwatch-vi/blob/98f78dde8ed87ccb9bb67588e160d1aab7ca814d/assets/js/scoring.js)
 
-- 基础准备占 25 分，加载器、着色器、图形层和其他场景验证的权重为 20%、28%、32% 和 20%。
-- 程序运行、首帧、主菜单和进入游戏分别对应 25、40、55 和 70 分。首个未完成的阶段按完成比例插值。
-- 进入游戏后，30 FPS 与稳定性各计最多 15 分。本站按档案顺序处理同分项目，输出领先分数、前三平均值、最远阶段和达到启动阶段的项目数。
+- 后半段以监狱序章为门槛。加载启动、首帧、菜单、进入游戏和监狱序章依次对应 15、30、35、40、50 分；首个未完成阶段按比例插值。旧帧率、稳定性和完整性记录不会解锁 V5 计分。
+- 后半段最多加 50 分：45 分给画面与帧率，5 分给稳定性。画面与帧率子分先取 `80% × 较低分 + 15% × 画面分 + 5% × 帧率分`。稳定性从 50 开始，有依据的无故障复测加分，闪退、卡死、图形设备丢失减分。
+- 同一构建和参考设置下，只采原生 1920×1080，关闭动态分辨率、超分、补帧和 DLSS 5。每个固定路段跑三次，取帧率中位并按路段时长汇总；严重漏绘或粗模会限制画面子分。缺测项为 `null`，不是实测 0 分；画面或帧率缺测时，总分不超过 50。
+- 两个本地入口的 `/api/dashboard` 使用同一个 V5 排名投影，保留 `progress.history`。服务端的 `progress-history.v5.json` 与旧历史文件分开；只读演示使用独立的合成 V5 序列。随仓库分发的分项、源链接和构建标识均为虚构示例，不代表实际硬件测量或生产站档案。
 
 ## 随仓库分发的第三方文件
 

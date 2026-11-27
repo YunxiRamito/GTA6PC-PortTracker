@@ -181,9 +181,30 @@
     </div>
     <ol class="port-progress-labels" id="portProgressLabels" data-i18n-aria-label="home.scoreRules.legend" aria-label="移植进度刻度" role="list"></ol>
   </div>
-  <div class="port-progress-history" id="portProgressHistory" hidden aria-hidden="true">
-    <p class="port-progress-history-label" data-i18n="pages.home.dailyLeaderScore">领先者分数 · 按天</p>
-    <svg class="port-progress-history-chart" id="portProgressHistoryChart" viewBox="0 0 1000 70" preserveAspectRatio="none" aria-hidden="true"></svg>
+  <div class="port-progress-subscores" id="portProgressSubscores" role="group" data-i18n-aria-label="home.port.subscore.group" aria-label="领先项目子分" hidden>
+    <p class="pp-subscore-note" id="portProgressSubscoreNote" hidden></p>
+    <div class="pp-subscore-grid">
+      <div class="pp-subscore" id="portProgressRenderingSubscore">
+        <div class="pp-subscore-head">
+          <span id="portProgressRenderingLabel" data-i18n="home.port.factor.renderingScore">画面分</span>
+          <span class="pp-subscore-value" id="portProgressRenderingValue" aria-hidden="true" hidden></span>
+        </div>
+        <div class="pp-subscore-track" id="portProgressRenderingTrack" role="progressbar" aria-labelledby="portProgressRenderingLabel" aria-valuemin="0" aria-valuemax="100" aria-hidden="true">
+          <div class="pp-subscore-fill" id="portProgressRenderingFill"></div>
+        </div>
+        <p class="pp-subscore-detail" id="portProgressRenderingDetail" hidden></p>
+      </div>
+      <div class="pp-subscore pp-subscore-performance" id="portProgressPerformanceSubscore">
+        <div class="pp-subscore-head">
+          <span id="portProgressPerformanceLabel" data-i18n="home.port.factor.performanceScore">帧率分</span>
+          <span class="pp-subscore-value" id="portProgressPerformanceValue" aria-hidden="true" hidden></span>
+        </div>
+        <div class="pp-subscore-track" id="portProgressPerformanceTrack" role="progressbar" aria-labelledby="portProgressPerformanceLabel" aria-valuemin="0" aria-valuemax="100" aria-hidden="true">
+          <div class="pp-subscore-fill" id="portProgressPerformanceFill"></div>
+        </div>
+        <p class="pp-subscore-detail" id="portProgressPerformanceDetail" hidden></p>
+      </div>
+    </div>
   </div>
   <p class="port-progress-empty" id="portProgressEmpty" role="status" aria-atomic="true" data-i18n="pages.home.progressPending" hidden>进度数据整理中，敬请期待。</p>
   <p class="port-progress-footnote" data-i18n="pages.home.progressFootnote">评分由社区记录计算，分数反映公开依据，不是官方认证的可玩声明。</p>

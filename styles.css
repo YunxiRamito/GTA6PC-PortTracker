@@ -695,9 +695,49 @@ h1, h2, h3, p, figure { margin: 0; }
 .ppl-item.is-reached b { color: var(--pp-pink); }
 .ppl-item.is-reached .ppl-label { color: var(--paper); font-weight: 700; }
 /* History */
-.port-progress-history { min-width: 0; }
-.port-progress-history-label { margin: 0 0 6px; color: var(--pp-muted); font-size: .78rem; }
-.port-progress-history-chart { display: block; width: 100%; height: 56px; }
+.port-progress-subscores { display: grid; gap: 5px; min-inline-size: 0; }
+.pp-subscore-note { color: #ffd2c4; font: 700 .72rem/1.35 var(--body); overflow-wrap: anywhere; }
+.pp-subscore-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.pp-subscore {
+  --pp-subscore-ink: #dfa8c5;
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  min-inline-size: 0;
+  padding: 7px 9px;
+  border: 1px solid rgba(255, 228, 214, .1);
+  border-radius: 8px;
+  background: rgba(255, 228, 214, .035);
+}
+.pp-subscore-performance { --pp-subscore-ink: #bfaee4; }
+.pp-subscore.is-bottleneck { --pp-subscore-ink: #ffc2a8; border-color: #ffb4a25e; }
+.pp-subscore-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 2px 5px;
+  color: var(--paper);
+  font: 700 .77rem/1.3 var(--body);
+  overflow-wrap: anywhere;
+}
+.pp-subscore-value { color: var(--muted); font: 700 .71rem/1.3 var(--mono); font-variant-numeric: tabular-nums; }
+.pp-subscore-track { block-size: 5px; overflow: hidden; border-radius: 99px; background: var(--pp-track-bg); }
+.pp-subscore-track[aria-hidden="true"] { background: repeating-linear-gradient(90deg, var(--pp-track-bg) 0 4px, transparent 4px 7px); }
+.pp-subscore-fill { width: var(--w, 0%); height: 100%; border-radius: inherit; background: var(--pp-subscore-ink); }
+.pp-subscore-detail { color: var(--pp-muted); font: .72rem/1.3 var(--body); overflow-wrap: anywhere; }
+@media (prefers-reduced-motion: no-preference) {
+  .pp-subscore { transition: border-color 200ms var(--ease); }
+  .pp-subscore-fill { transition: width 520ms var(--ease), background-color 200ms var(--ease); }
+  @starting-style { .pp-subscore-fill { width: 0; } }
+  :is(.port-progress-subscores, .pp-subscore-note) {
+    transition: opacity 220ms var(--ease), translate 220ms var(--ease), display 220ms allow-discrete;
+  }
+  :is(.port-progress-subscores, .pp-subscore-note)[hidden] { opacity: 0; translate: 0 4px; pointer-events: none; }
+  @starting-style {
+    :is(.port-progress-subscores, .pp-subscore-note):not([hidden]) { opacity: 0; translate: 0 4px; }
+  }
+}
 /* Empty state */
 .port-progress-empty { color: var(--pp-muted); font-size: .92rem; line-height: 1.6; overflow-wrap: anywhere; }
 .port-progress-footnote { color: var(--pp-muted); font-size: .76rem; line-height: 1.5; overflow-wrap: anywhere; }
