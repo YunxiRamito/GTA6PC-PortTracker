@@ -78,6 +78,12 @@
     const anchor = document.createElement('a');
     anchor.className = 'feedback-site-notice-link';
     anchor.href = window.SiteI18n?.url(destination.href) ?? destination.href;
+    if (!relative) {
+      // Some video hosts reject navigations carrying a third-party referrer.
+      anchor.target = '_blank';
+      anchor.rel = 'noopener noreferrer';
+      anchor.referrerPolicy = 'no-referrer';
+    }
     const label = document.createElement('span');
     label.textContent = link.label;
     const svgNamespace = 'http://www.w3.org/2000/svg';
