@@ -21,24 +21,16 @@
   }
 }
 
-/* Only the coarse-input enhancement uses these rails. Its palette is shared
-   with the native desktop scrollbars in site-topbar.css / console.css. */
+/* Paint the indicator separately from the full-width touch target. */
 .os-scrollbar.os-theme-port-tracker {
   --os-size: 24px;
   --os-padding-axis: 3px;
-  --os-padding-perpendicular: 0px;
-  --os-handle-perpendicular-size: 100%;
-  --os-handle-perpendicular-size-hover: 100%;
-  --os-handle-perpendicular-size-active: 100%;
   --os-handle-min-size: 40px;
-  --os-handle-max-size: none;
-  --os-handle-border-radius: 999px;
-  --os-handle-bg: var(--scrollbar-thumb, #a789af);
-  --os-handle-bg-hover: var(--scrollbar-thumb-hover, #cea6ca);
-  --os-handle-bg-active: var(--scrollbar-thumb-active, #f1b6d0);
+  --scrollbar-indicator-size: 3px;
+  --scrollbar-indicator-color: rgb(220 220 224 / .56);
   --scrollbar-ease: cubic-bezier(.22, 1, .36, 1);
   z-index: 2;
-  transition: opacity 160ms var(--scrollbar-ease), visibility 160ms;
+  transition: opacity 200ms var(--scrollbar-ease), visibility 200ms;
 }
 /* Keep an almost-transparent thumb hit target so it can wake on touch. Fully
    hiding the bar makes its drag handle impossible to grab again. */
@@ -47,31 +39,38 @@
   visibility: visible;
 }
 .os-scrollbar.os-theme-port-tracker.os-scrollbar-interaction {
+  --scrollbar-indicator-size: 5px;
+  --scrollbar-indicator-color: rgb(236 236 240 / .76);
   opacity: 1;
   visibility: visible;
 }
 .os-scrollbar.os-theme-port-tracker:active {
+  --scrollbar-indicator-size: 5px;
+  --scrollbar-indicator-color: rgb(236 236 240 / .76);
   opacity: 1;
   visibility: visible;
 }
-.os-theme-port-tracker > .os-scrollbar-track::before {
-  background: var(--scrollbar-track, #221b2f);
-  opacity: .7;
-  border-radius: 999px;
-  pointer-events: none;
-}
-.os-theme-port-tracker .os-scrollbar-handle {
-  box-sizing: border-box;
-  border: solid transparent;
-  background-clip: padding-box;
-  cursor: grab;
-  transition: background-color 160ms var(--scrollbar-ease);
-}
+.os-theme-port-tracker .os-scrollbar-handle { cursor: grab; }
 .os-theme-port-tracker .os-scrollbar-handle:active { cursor: grabbing; }
-.os-theme-port-tracker.os-scrollbar-vertical > .os-scrollbar-track::before { left: 14px; right: 2px; }
-.os-theme-port-tracker.os-scrollbar-vertical .os-scrollbar-handle { border-width: 0 2px 0 14px; }
-.os-theme-port-tracker.os-scrollbar-horizontal > .os-scrollbar-track::before { top: 14px; bottom: 2px; }
-.os-theme-port-tracker.os-scrollbar-horizontal .os-scrollbar-handle { border-width: 14px 0 2px; }
+.os-theme-port-tracker .os-scrollbar-handle::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+  background: var(--scrollbar-indicator-color);
+  border-radius: 1.5px;
+  transition: background-color 160ms var(--scrollbar-ease),
+    inline-size 180ms var(--scrollbar-ease), block-size 180ms var(--scrollbar-ease);
+}
+.os-theme-port-tracker.os-scrollbar-vertical .os-scrollbar-handle::after {
+  inset-block: 2px;
+  inset-inline-end: 4px;
+  inline-size: var(--scrollbar-indicator-size);
+}
+.os-theme-port-tracker.os-scrollbar-horizontal .os-scrollbar-handle::after {
+  inset-inline: 2px;
+  inset-block-end: 4px;
+  block-size: var(--scrollbar-indicator-size);
+}
 /* Keep the grab area off of the group action buttons. */
 .qq-popover:has(> .os-scrollbar-vertical.os-scrollbar-visible) { padding-inline-end: 24px; }
 
@@ -92,5 +91,5 @@ html.menu-open .site-scrollbar-document,
 body:has(dialog:modal) > .site-scrollbar-document { visibility: hidden; }
 @media (prefers-reduced-motion: reduce) {
   .os-scrollbar.os-theme-port-tracker,
-  .os-theme-port-tracker .os-scrollbar-handle { transition: none; }
+  .os-theme-port-tracker .os-scrollbar-handle::after { transition: none; }
 }

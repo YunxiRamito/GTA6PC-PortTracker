@@ -15,6 +15,8 @@
   ].join(',');
   // Update the bootstrap with theme changes; late-loaded styles use the same release fingerprint.
   const assetVersion = document.currentScript?.src ? new URL(document.currentScript.src).search : '';
+  // Scope CSS revisions to the theme so independently cached vendor assets stay reusable.
+  const themeVersion = `${assetVersion}${assetVersion ? '&' : '?'}theme=3`;
   const vendor = '/assets/vendor/overlayscrollbars-2.17.0.min';
   const enabled = () => touch.matches && !contrast.matches;
   let boot;
@@ -39,7 +41,7 @@
     const script = document.createElement('script');
     boot = Promise.all([
       load(base, `${vendor}.css${assetVersion}`, 'href', document.head, true),
-      load(theme, `/assets/site-scrollbars.css${assetVersion}`, 'href', document.head),
+      load(theme, `/assets/site-scrollbars.css${themeVersion}`, 'href', document.head),
       load(script, `${vendor}.js${assetVersion}`, 'src', document.head),
     ]).then(() => window.OverlayScrollbarsGlobal?.OverlayScrollbars).catch(() => {
       for (const node of [base, theme, script]) node.remove();

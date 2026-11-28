@@ -274,6 +274,18 @@ test('both entry points serve the shared scrollbar theme on every public page', 
   }
 });
 
+test('touch scrollbar uses a narrow trackless indicator with a wide drag target', async () => {
+  const css = await fs.readFile(path.join(workspace, 'assets/site-scrollbars.css'), 'utf8');
+  const bootstrap = await fs.readFile(path.join(workspace, 'assets/site-scrollbars.js'), 'utf8');
+  assert.match(css, /--os-size:\s*24px/);
+  assert.match(css, /--scrollbar-indicator-size:\s*3px/);
+  assert.match(css, /--scrollbar-indicator-size:\s*5px/);
+  assert.match(css, /\.os-scrollbar-handle::after\s*\{[^}]*pointer-events:\s*none/);
+  assert.doesNotMatch(css, /--os-handle-bg:|\.os-scrollbar-track::before/);
+  assert.match(bootstrap, /theme=3/);
+  assert.match(bootstrap, /site-scrollbars\.css\$\{themeVersion\}/);
+});
+
 test('admin entries defer the shared scrollbar bootstrap without changing access', async t => {
   const { directory, cleanup } = await runtime();
   const username = 'local-owner-example';
