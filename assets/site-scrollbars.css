@@ -40,6 +40,16 @@
   z-index: 2;
   transition: opacity 160ms var(--scrollbar-ease), visibility 160ms;
 }
+/* Keep an almost-transparent thumb hit target so it can wake on touch. Fully
+   hiding the bar makes its drag handle impossible to grab again. */
+.os-scrollbar.os-theme-port-tracker.os-scrollbar-auto-hide-hidden {
+  opacity: .055;
+  visibility: visible;
+}
+.os-scrollbar.os-theme-port-tracker.os-scrollbar-interaction {
+  opacity: 1;
+  visibility: visible;
+}
 .os-theme-port-tracker > .os-scrollbar-track::before {
   background: var(--scrollbar-track, #221b2f);
   opacity: .7;

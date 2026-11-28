@@ -260,6 +260,10 @@ test('both entry points serve the shared scrollbar theme on every public page', 
           assert.match(theme, /scrollbar-color\s*:/);
           assert.match(theme, /::-webkit-scrollbar-thumb\b/);
         }
+        if (pathname === enhancementCss) {
+          assert.match(css, /os-scrollbar-auto-hide-hidden\s*\{[^}]*opacity:\s*\.055;[^}]*visibility:\s*visible/s);
+          assert.match(css, /os-scrollbar-interaction\s*\{[^}]*opacity:\s*1;[^}]*visibility:\s*visible/s);
+        }
         // The shared touch enhancement has its own feature probe with scrollbar hiding rules.
         if (pathname !== enhancementCss) {
           assert.doesNotMatch(css.replace(themeBlock, ''), overrides, `${href} overrides the shared theme`);
