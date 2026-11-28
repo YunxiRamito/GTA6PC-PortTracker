@@ -1,0 +1,95 @@
+/* OverlayScrollbars' feature probe, externalized for style-src 'self'. */
+.os-environment {
+  scroll-behavior: auto !important;
+  position: fixed;
+  opacity: 0;
+  visibility: hidden;
+  overflow: scroll;
+  height: 200px;
+  width: 200px;
+  z-index: -1;
+}
+.os-environment div { width: 200%; height: 200%; margin: 10px 0; }
+.os-environment-scrollbar-hidden { scrollbar-width: none !important; }
+@supports not (scrollbar-width: none) {
+  .os-environment-scrollbar-hidden::-webkit-scrollbar,
+  .os-environment-scrollbar-hidden::-webkit-scrollbar-corner {
+    appearance: none !important;
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+  }
+}
+
+/* Paint the indicator separately from the full-width touch target. */
+.os-scrollbar.os-theme-port-tracker {
+  --os-size: 24px;
+  --os-padding-axis: 3px;
+  --os-handle-min-size: 40px;
+  --scrollbar-indicator-size: 3px;
+  --scrollbar-indicator-color: rgb(220 220 224 / .56);
+  --scrollbar-ease: cubic-bezier(.22, 1, .36, 1);
+  z-index: 2;
+  transition: opacity 200ms var(--scrollbar-ease), visibility 200ms;
+}
+/* Keep an almost-transparent thumb hit target so it can wake on touch. Fully
+   hiding the bar makes its drag handle impossible to grab again. */
+.os-scrollbar.os-theme-port-tracker.os-scrollbar-auto-hide-hidden {
+  opacity: .055;
+  visibility: visible;
+}
+.os-scrollbar.os-theme-port-tracker.os-scrollbar-interaction {
+  --scrollbar-indicator-size: 5px;
+  --scrollbar-indicator-color: rgb(236 236 240 / .76);
+  opacity: 1;
+  visibility: visible;
+}
+.os-scrollbar.os-theme-port-tracker:active {
+  --scrollbar-indicator-size: 5px;
+  --scrollbar-indicator-color: rgb(236 236 240 / .76);
+  opacity: 1;
+  visibility: visible;
+}
+.os-theme-port-tracker .os-scrollbar-handle { cursor: grab; }
+.os-theme-port-tracker .os-scrollbar-handle:active { cursor: grabbing; }
+.os-theme-port-tracker .os-scrollbar-handle::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+  background: var(--scrollbar-indicator-color);
+  border-radius: 1.5px;
+  transition: background-color 160ms var(--scrollbar-ease),
+    inline-size 180ms var(--scrollbar-ease), block-size 180ms var(--scrollbar-ease);
+}
+.os-theme-port-tracker.os-scrollbar-vertical .os-scrollbar-handle::after {
+  inset-block: 2px;
+  inset-inline-end: 4px;
+  inline-size: var(--scrollbar-indicator-size);
+}
+.os-theme-port-tracker.os-scrollbar-horizontal .os-scrollbar-handle::after {
+  inset-inline: 2px;
+  inset-block-end: 4px;
+  block-size: var(--scrollbar-indicator-size);
+}
+/* Keep the grab area off of the group action buttons. */
+.qq-popover:has(> .os-scrollbar-vertical.os-scrollbar-visible) { padding-inline-end: 24px; }
+
+body > .os-theme-port-tracker.site-scrollbar-document { z-index: 10; }
+/* Override the vendor's cornerless rail too: keep the grab target clear of
+   the sticky announcement/topbar and the floating dock. */
+body > .os-theme-port-tracker.site-scrollbar-document.os-scrollbar-vertical {
+  top: max(var(--site-topbar-height, 0px), env(safe-area-inset-top, 0px));
+  bottom: max(52px, env(safe-area-inset-bottom, 0px));
+  right: env(safe-area-inset-right, 0px);
+}
+body > .os-theme-port-tracker.site-scrollbar-document.os-scrollbar-horizontal {
+  bottom: env(safe-area-inset-bottom, 0px);
+  left: env(safe-area-inset-left, 0px);
+  right: env(safe-area-inset-right, 0px);
+}
+html.menu-open .site-scrollbar-document,
+body:has(dialog:modal) > .site-scrollbar-document { visibility: hidden; }
+@media (prefers-reduced-motion: reduce) {
+  .os-scrollbar.os-theme-port-tracker,
+  .os-theme-port-tracker .os-scrollbar-handle::after { transition: none; }
+}

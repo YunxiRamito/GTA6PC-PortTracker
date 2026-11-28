@@ -268,8 +268,6 @@
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-color: rgba(207, 195, 233, .36) transparent;
-  scrollbar-width: thin;
   -webkit-overflow-scrolling: touch;
   overflow-anchor: none;
   list-style: none;

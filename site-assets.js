@@ -9,8 +9,10 @@ const PUBLIC_ASSETS = new Set([
   '/assets/hardware-check.css', '/assets/hardware-check.js', '/assets/i18n-hardware-check.js',
   '/assets/hero-opening.css', '/assets/motion.js', '/assets/navigation.js', '/assets/port-score.js',
   '/assets/progress-motion.css', '/assets/project-progress.js', '/assets/site-content.js',
-  '/assets/site-topbar.css', '/assets/site-widgets.css', '/assets/traffic-history.js', '/assets/traffic.js',
-  '/assets/vendor/lenis.min.js', '/assets/ui/fluent.svg', '/assets/ui/octicons.svg',
+  '/assets/site-scrollbars.css', '/assets/site-scrollbars.js', '/assets/site-topbar.css', '/assets/site-widgets.css',
+  '/assets/traffic-history.js', '/assets/traffic.js',
+  '/assets/vendor/lenis.min.js', '/assets/vendor/overlayscrollbars-2.17.0.min.css', '/assets/vendor/overlayscrollbars-2.17.0.min.js',
+  '/assets/ui/fluent.svg', '/assets/ui/octicons.svg',
   '/assets/ui/barlow-400-latin.woff2', '/assets/ui/barlow-700-latin.woff2',
   '/assets/ui/barlow-condensed-700-latin.woff2', '/assets/ui/barlow-condensed-900-latin.woff2',
 ]);

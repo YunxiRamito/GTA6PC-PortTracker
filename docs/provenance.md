@@ -19,6 +19,7 @@ PortWatch VI 只作为进度评分方法和数据结构的参考。`assets/port-
 | 组件 | 此仓库的用法 | 随附许可与版本来源 |
 | --- | --- | --- |
 | Lenis 1.3.17 | `assets/vendor/lenis.min.js` 提供精细指针的平滑滚动。文件与该版本 npm 包中的构建一致。 | [MIT](../assets/vendor/Lenis-LICENSE.txt) · [固定源码](https://github.com/darkroomengineering/lenis/tree/3dc917bfdc8e2f11e72b7a43f7bb51c4ad2a2f88) · [npm 构建](https://registry.npmjs.org/lenis/-/lenis-1.3.17.tgz) |
+| OverlayScrollbars 2.17.0 | 为触屏等粗指针输入增强滚动条拖动；仅有精细指针时使用浏览器原生滚动条。脚本和样式由本站提供，不依赖 CDN。 | [MIT](../assets/vendor/OverlayScrollbars-LICENSE.txt) · [版本与来源](../assets/vendor/OverlayScrollbars-PROVENANCE.txt) |
 | Microsoft Fluent UI System Icons | `assets/ui/fluent.svg` 为 24 px regular 图标子集。各路径与固定修订的 SVG 一致。 | [MIT](../assets/ui/Fluent-LICENSE.txt) · [固定素材目录](https://github.com/microsoft/fluentui-system-icons/tree/a3de63245b4fa49c30e20d9838593a105affe774/assets) |
 | Primer Octicons | `assets/ui/octicons.svg` 为工程指标和导航图标子集。各路径与固定修订的 SVG 一致。 | [MIT](../assets/ui/Octicons-LICENSE.txt) · [固定素材目录](https://github.com/primer/octicons/tree/e6626e159c4ba786d512e252182b62617014c752/icons) |
 | Barlow | 正文使用 Google Fonts 的 400 与 700 Latin WOFF2 文件。 | [SIL OFL 1.1](../assets/ui/OFL-Barlow.txt) · [字体来源](https://github.com/google/fonts/tree/83c62e30d87daa70216dab6b984d00d20d96d585/ofl/barlow) · [400](https://fonts.gstatic.com/s/barlow/v13/7cHpv4kjgoGqM7E_DMs5.woff2) · [700](https://fonts.gstatic.com/s/barlow/v13/7cHqv4kjgoGqM7E3t-4s51os.woff2) |

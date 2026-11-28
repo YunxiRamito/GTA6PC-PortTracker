@@ -1,3 +1,10 @@
 * text=auto eol=lf
 *.woff2 binary
 *.png binary
+
+# Keep the exact line endings of the shared handoff assets.
+assets/site-scrollbars.js -text whitespace=cr-at-eol
+assets/site-scrollbars.css -text whitespace=cr-at-eol
+assets/vendor/OverlayScrollbars-PROVENANCE.txt -text whitespace=cr-at-eol
+# Keep upstream bytes, including the spacing in its license banner.
+assets/vendor/overlayscrollbars-2.17.0.min.css -text whitespace=-blank-at-eol

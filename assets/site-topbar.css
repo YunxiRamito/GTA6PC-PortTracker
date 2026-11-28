@@ -1,4 +1,41 @@
 /* Shared Port Tracker masthead. Keep public and console surface tokens separate. */
+/* site-scrollbars:start */
+/* Keep overflow and scrollbar visibility under each container's native control. */
+:root {
+  --scrollbar-track: #221b2f;
+  --scrollbar-thumb: #a789af;
+  --scrollbar-thumb-hover: #cea6ca;
+  --scrollbar-thumb-active: #f1b6d0;
+}
+
+@media not all and (forced-colors: active) {
+  /* Inherit the colors for nested scrollers without shrinking native hit targets. */
+  :root { scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track); }
+
+  @media (hover: hover) and (pointer: fine) {
+    @supports selector(::-webkit-scrollbar-thumb) {
+      /* A non-auto scrollbar-color would override the rounded WebKit parts. */
+      :root { scrollbar-color: auto; }
+      ::-webkit-scrollbar { width: 12px; height: 12px; }
+      ::-webkit-scrollbar-track { border-radius: 999px; background-color: var(--scrollbar-track); }
+      ::-webkit-scrollbar-corner { background-color: transparent; }
+      ::-webkit-scrollbar-thumb {
+        border: 2px solid transparent;
+        border-radius: 999px;
+        background-color: var(--scrollbar-thumb);
+        background-clip: padding-box;
+      }
+      ::-webkit-scrollbar-thumb:hover { background-color: var(--scrollbar-thumb-hover); }
+      ::-webkit-scrollbar-thumb:active { background-color: var(--scrollbar-thumb-active); }
+
+      @media (prefers-reduced-motion: no-preference) {
+        ::-webkit-scrollbar-thumb { transition: background-color 160ms cubic-bezier(.22, 1, .36, 1); }
+      }
+    }
+  }
+}
+/* site-scrollbars:end */
+
 .site-topbar, .chapter-menu {
   --paper: #fff1e3;
   --muted: #cfc3e9;
@@ -337,4 +374,60 @@ html.menu-open, html.menu-open body { overflow: hidden; }
   border-color: transparent;
   background: transparent;
   color: var(--accent);
+}
+
+/* Floating back-to-top, below the public widget dock. */
+.site-back-to-top {
+  --back-top-ease: cubic-bezier(.22, 1, .36, 1);
+  --back-top-edge: clamp(10px, 1.3vw, 18px);
+  position: fixed;
+  left: calc(var(--back-top-edge) + env(safe-area-inset-left, 0px));
+  bottom: calc(var(--back-top-edge) + env(safe-area-inset-bottom, 0px));
+  z-index: 5;
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid #a789af;
+  border-radius: 50%;
+  background-color: #261f35;
+  box-shadow: 0 4px 16px #0a071566;
+  color: #fff1e3;
+  cursor: pointer;
+  touch-action: manipulation;
+  pointer-events: none;
+  visibility: hidden;
+  opacity: 0;
+  transform: translateY(7px);
+  transition: opacity 200ms var(--back-top-ease), transform 200ms var(--back-top-ease),
+    visibility 0s 200ms, background-color 160ms var(--back-top-ease), color 160ms var(--back-top-ease);
+}
+.site-back-to-top:not([inert]) {
+  pointer-events: auto;
+  visibility: var(--site-back-to-top-visibility, visible);
+  opacity: 1;
+  transform: none;
+  transition-delay: 0s;
+}
+.site-back-to-top > .ui-icon { width: 21px; height: 21px; fill: currentColor; transform: rotate(180deg); }
+.site-back-to-top:focus-visible { outline: 2px solid #ffb4a2; outline-offset: 3px; }
+@media (hover: hover) {
+  .site-back-to-top:hover { background-color: #40304e; }
+}
+.site-back-to-top:active { background-color: #f4a1c0; color: #21172e; transform: scale(.94); }
+
+/* Hide immediately under overlays; on narrow screens the expanded dock can reach the left edge. */
+body:has(dialog[open]) > .site-back-to-top { --site-back-to-top-visibility: hidden; }
+@media (max-width: 680px) {
+  body:has(.danmaku-widget[data-open='true'], .danmaku-history[data-open='true'], .danmaku-options[data-open='true'],
+    .danmaku-moderation:not([hidden]), .traffic-board[open]) > .site-back-to-top { --site-back-to-top-visibility: hidden; }
+}
+@starting-style {
+  .site-back-to-top:not([inert]) { opacity: 0; transform: translateY(7px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .site-back-to-top { transition: none; }
+  .site-back-to-top:active { transform: none; }
 }

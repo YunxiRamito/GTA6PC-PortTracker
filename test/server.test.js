@@ -15,6 +15,7 @@ const { createDemoServer } = require('../preview');
 
 const workspace = path.resolve(__dirname, '..');
 const loopback = '127.0.0.1';
+const scrollbarBootstrap = '/assets/site-scrollbars.js';
 
 async function listener(t, server) {
   server.listen(0, loopback);
@@ -59,6 +60,19 @@ function sessionCookie(response) {
   const cookie = response.headers.get('set-cookie')?.split(';', 1)[0];
   assert.ok(cookie, 'Expected a session cookie');
   return cookie;
+}
+
+async function readScrollbarPage(response, route) {
+  assert.equal(response.status, 200, route);
+  assert.match(response.headers.get('content-security-policy') || '', /(?:^|;\s*)script-src 'self'(?:;|$)/, route);
+  const html = await response.text();
+  const scripts = [...html.matchAll(/<script\b[^>]*\ssrc="([^"\s]+)"[^>]*>/g)]
+    .filter(([, src]) => src.split('?')[0] === scrollbarBootstrap);
+  assert.equal(scripts.length, 1, route + ' must load the same-origin scrollbar bootstrap once');
+  const [[tag]] = scripts;
+  assert.match(tag, /\sdefer(?=[\s>])/, route + ' must defer the scrollbar bootstrap');
+  assert.doesNotMatch(tag, /\sasync(?=[\s=>])/, route + ' must not load the scrollbar bootstrap asynchronously');
+  return html;
 }
 
 function checkDemoPrivateRepositories(archive) {
@@ -211,6 +225,119 @@ test('screenshot preview responds from fixtures and rejects writes', async t => 
   checkDemoPrivateRepositories(await json(await send(origin, '/api/dashboard'), 200));
   assert.equal((await send(origin, '/api/feedback', { method: 'POST', data: { text: 'sample' } })).status, 405);
   assert.equal((await send(origin, '/about/')).status, 200);
+});
+
+test('both entry points serve the shared scrollbar theme on every public page', async t => {
+  const sharedCss = '/assets/site-topbar.css';
+  const enhancementCss = '/assets/site-scrollbars.css';
+  const themeBlock = /\/\* site-scrollbars:start \*\/[\s\S]*?\/\* site-scrollbars:end \*\//;
+  const overrides = /\bscrollbar-(?:color|width)\s*:|::-webkit-scrollbar\b/i;
+  for (const mode of ['site', 'preview']) {
+    await t.test(mode, async t => {
+      const { directory, cleanup } = mode === 'site' ? await runtime() : {};
+      const origin = await listener(t, mode === 'site'
+        ? createSiteServer({ runtimeDir: directory, liveGitHub: false })
+        : createDemoServer());
+      if (cleanup) t.after(cleanup);
+
+      const stylesheets = new Set();
+      for (const route of ['/', '/about/', '/feedback/', '/thanks/', '/can-i-run/']) {
+        const html = await readScrollbarPage(await send(origin, route), route);
+        const links = [...html.matchAll(/<link\b[^>]*\brel="stylesheet"[^>]*\bhref="([^"]+)"/g)].map(([, href]) => href);
+        assert.ok(links.some(href => new URL(href, origin).pathname === sharedCss), `${route} must load ${sharedCss}`);
+        for (const href of links) stylesheets.add(href);
+      }
+      if (mode === 'preview') assert.equal((await send(origin, '/admin/')).status, 404);
+      for (const href of stylesheets) {
+        const stylesheet = await send(origin, href);
+        assert.equal(stylesheet.status, 200, href);
+        assert.match(stylesheet.headers.get('content-type'), /^text\/css\b/i);
+        const css = await stylesheet.text();
+        const { pathname } = new URL(href, origin);
+        if (pathname === sharedCss) {
+          const theme = css.match(themeBlock)?.[0];
+          assert.ok(theme, 'The shared stylesheet must contain the canonical scrollbar theme');
+          assert.match(theme, /scrollbar-color\s*:/);
+          assert.match(theme, /::-webkit-scrollbar-thumb\b/);
+        }
+        if (pathname === enhancementCss) {
+          assert.match(css, /os-scrollbar-auto-hide-hidden\s*\{[^}]*opacity:\s*\.055;[^}]*visibility:\s*visible/s);
+          assert.match(css, /os-scrollbar-interaction\s*\{[^}]*opacity:\s*1;[^}]*visibility:\s*visible/s);
+          assert.match(css, /\.os-scrollbar\.os-theme-port-tracker:active\s*\{[^}]*opacity:\s*1;[^}]*visibility:\s*visible/s);
+        }
+        // The shared touch enhancement has its own feature probe with scrollbar hiding rules.
+        if (pathname !== enhancementCss) {
+          assert.doesNotMatch(css.replace(themeBlock, ''), overrides, `${href} overrides the shared theme`);
+        }
+      }
+    });
+  }
+});
+
+test('touch scrollbar uses a narrow trackless indicator with a wide drag target', async () => {
+  const css = await fs.readFile(path.join(workspace, 'assets/site-scrollbars.css'), 'utf8');
+  const bootstrap = await fs.readFile(path.join(workspace, 'assets/site-scrollbars.js'), 'utf8');
+  assert.match(css, /--os-size:\s*24px/);
+  assert.match(css, /--scrollbar-indicator-size:\s*3px/);
+  assert.match(css, /--scrollbar-indicator-size:\s*5px/);
+  assert.match(css, /\.os-scrollbar-handle::after\s*\{[^}]*pointer-events:\s*none/);
+  assert.doesNotMatch(css, /--os-handle-bg:|\.os-scrollbar-track::before/);
+  assert.match(bootstrap, /theme=3/);
+  assert.match(bootstrap, /site-scrollbars\.css\$\{themeVersion\}/);
+});
+
+test('admin entries defer the shared scrollbar bootstrap without changing access', async t => {
+  const { directory, cleanup } = await runtime();
+  const username = 'local-owner-example';
+  const password = randomBytes(24).toString('base64url');
+  const accounts = createAdminAccounts({
+    filePath: path.join(directory, 'accounts.json'),
+    bootstrap: { username, password },
+    confirmedInitialOwner: username,
+  });
+  await accounts.initialize();
+  const origin = await listener(t, createSiteServer({ runtimeDir: directory, accounts, liveGitHub: false }));
+  t.after(cleanup);
+
+  const redirect = await send(origin, '/admin/');
+  assert.equal(redirect.status, 302);
+  assert.equal(redirect.headers.get('location'), '/admin/login');
+  await readScrollbarPage(await send(origin, '/admin/login'), '/admin/login');
+
+  const login = await send(origin, '/api/admin/session', { method: 'POST', data: { username, password } });
+  assert.equal(login.status, 200);
+  const cookie = sessionCookie(login);
+  for (const route of ['/admin/', '/admin/feedback/', '/admin/sponsors/']) {
+    await readScrollbarPage(await send(origin, route, { cookie }), route);
+  }
+});
+
+test('both entry points serve the exact scrollbar runtime assets', async t => {
+  const assets = [
+    scrollbarBootstrap,
+    '/assets/site-scrollbars.css',
+    '/assets/vendor/overlayscrollbars-2.17.0.min.js',
+    '/assets/vendor/overlayscrollbars-2.17.0.min.css',
+  ];
+  for (const mode of ['site', 'preview']) {
+    await t.test(mode, async t => {
+      const { directory, cleanup } = mode === 'site' ? await runtime() : {};
+      const origin = await listener(t, mode === 'site'
+        ? createSiteServer({ runtimeDir: directory, liveGitHub: false })
+        : createDemoServer());
+      if (cleanup) t.after(cleanup);
+
+      for (const route of assets) {
+        const response = await send(origin, route);
+        assert.equal(response.status, 200, route);
+        const mime = route.endsWith('.js') ? /^text\/javascript\b/i : /^text\/css\b/i;
+        assert.match(response.headers.get('content-type') || '', mime, route);
+        assert.deepEqual(Buffer.from(await response.arrayBuffer()), await fs.readFile(path.join(workspace, route.slice(1))), route);
+      }
+      // Notices ship in the repository without opening a route for the vendor directory.
+      assert.equal((await send(origin, '/assets/vendor/OverlayScrollbars-PROVENANCE.txt')).status, 404);
+    });
+  }
 });
 
 test('both entry points localize records and feeds without changing IDs, URLs, or scores', async t => {

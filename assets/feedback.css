@@ -32,7 +32,6 @@
   line-height: 1.45;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
-  scrollbar-width: thin;
   overscroll-behavior: contain;
 }
 .feedback-site-notice.has-link .feedback-site-notice-inner > p { flex: 1; }
@@ -117,7 +116,6 @@ html:has(.feedback-notice-dialog[open]) { overflow: hidden; }
   color: var(--muted);
   font-size: .96rem;
   overflow-wrap: anywhere;
-  scrollbar-width: thin;
   overscroll-behavior: contain;
 }
 .feedback-notice-body:focus-visible { outline-offset: -2px; }
