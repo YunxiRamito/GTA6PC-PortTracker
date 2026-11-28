@@ -50,6 +50,10 @@
   opacity: 1;
   visibility: visible;
 }
+.os-scrollbar.os-theme-port-tracker:active {
+  opacity: 1;
+  visibility: visible;
+}
 .os-theme-port-tracker > .os-scrollbar-track::before {
   background: var(--scrollbar-track, #221b2f);
   opacity: .7;
